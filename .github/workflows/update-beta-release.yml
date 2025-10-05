@@ -1,0 +1,80 @@
+name: Update latest beta release
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - development
+    paths-ignore:
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/workflows/**"
+      - ".gitattributes"
+      - ".gitignore"
+      - "LICENSE"
+      - "README.md"
+
+jobs:
+  figure_out_release_version:
+    name: Evaluate correct beta release version
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      beta_version: ${{ steps.set_latest_release_version_id.outputs.FINAL_BETA_VERSION }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Get latest release version
+        id: get_latest_release_version_id
+        run: |
+          LATEST_RELEASE=$(gh release list --limit 1 --order desc --repo "$GITHUB_REPOSITORY" | awk '{print $1}')
+          if [ -z "$LATEST_RELEASE" ]; then
+            echo "[ERROR] No releases found in the repository."
+            exit 1
+          fi
+          echo "[INFO] Latest release: $LATEST_RELEASE"
+          echo "LATEST_RELEASE=$LATEST_RELEASE" >> $GITHUB_ENV
+
+      - name: Figure out beta release version
+        id: set_latest_release_version_id
+        run: |
+          CURRENT_VERSION="$LATEST_RELEASE"
+
+          # Extract numeric parts
+          if [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)b([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            BETA="${BASH_REMATCH[4]}"
+          else
+            # Fallback: If no beta version exists, start with b0 (later increment to b1)
+            if [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              MAJOR="${BASH_REMATCH[1]}"
+              MINOR="${BASH_REMATCH[2]}"
+              PATCH="${BASH_REMATCH[3]}"
+              BETA=0
+            else
+              echo "[ERROR] Could not parse latest release version: $CURRENT_VERSION"
+              exit 1
+            fi
+          fi
+
+          # Increment beta version
+          NEXT_BETA=$((BETA + 1))
+          FINAL_BETA_VERSION="${MAJOR}.${MINOR}.${PATCH}b${NEXT_BETA}"
+
+          echo "[INFO] New beta version: $FINAL_BETA_VERSION"
+          echo "FINAL_BETA_VERSION=$FINAL_BETA_VERSION" >> $GITHUB_OUTPUT
+
+  start_ci_workflow:
+    name: Launch release workflow
+    needs: figure_out_release_version
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      version: "${{ needs.figure_out_release_version.outputs.beta_version }}"
+    secrets: inherit

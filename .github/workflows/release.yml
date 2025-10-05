@@ -1,0 +1,222 @@
+name: Publish a new release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release Version (1.2.3 or 1.2.3b1)"
+        required: true
+        type: string
+
+  workflow_call:
+    inputs:
+      version:
+        description: "Release Version (1.2.3 or 1.2.3b1)"
+        required: true
+        type: string
+
+env:
+  PACKAGE_NAME: "step-cli-tools"
+  PYPI_API_URL: "https://pypi.org/pypi/"
+  PYPI_REPOSITORY_URL: "https://upload.pypi.org/legacy/"
+
+jobs:
+  validate_version:
+    name: Validate version input
+    runs-on: ubuntu-latest
+    outputs:
+      is_beta: ${{ steps.check_version.outputs.is_beta }}
+    steps:
+      - name: Validate version input
+        id: check_version
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$ ]]; then
+              echo "Invalid version format: $VERSION"
+              echo "Use X.Y.Z or X.Y.ZbN (only normal or beta releases allowed)"
+              exit 1
+          else
+              # Check if it's a beta version
+              if [[ "$VERSION" == *b* ]]; then
+                  echo "Version $VERSION is a beta release"
+                  echo "is_beta=true" >> "$GITHUB_OUTPUT"
+              else
+                  echo "Version $VERSION is a normal release"
+                  echo "is_beta=false" >> "$GITHUB_OUTPUT"
+              fi
+          fi
+
+  details:
+    name: Gather release details
+    needs: validate_version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.release.outputs.new_version }}
+      suffix: ${{ steps.release.outputs.suffix }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      is_beta: ${{ needs.validate_version.outputs.is_beta }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Extract tag and details
+        id: release
+        run: |
+          TAG_NAME="${{ inputs.version }}"
+          NEW_VERSION=$(echo $TAG_NAME | awk -F'-' '{print $1}')
+          SUFFIX=$(echo $TAG_NAME | grep -oP '[a-z]+[0-9]+' || echo "")
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "suffix=$SUFFIX" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "Version is $NEW_VERSION"
+          echo "Suffix is $SUFFIX"
+          echo "Tag name is $TAG_NAME"
+
+  check_pypi:
+    name: Check version on PyPI
+    needs: details
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch information from PyPI
+        run: |
+          response=$(curl -s ${{ env.PYPI_API_URL }}${{ env.PACKAGE_NAME }}/json || echo "{}")
+          latest_previous_version=$(echo $response | jq --raw-output "select(.releases != null) | .releases | keys_unsorted | last")
+          if [ -z "$latest_previous_version" ]; then
+            echo "Package not found on PyPI."
+            latest_previous_version="0.0.0"
+          fi
+          echo "Latest version on PyPI: $latest_previous_version"
+          echo "latest_previous_version=$latest_previous_version" >> $GITHUB_ENV
+
+      - name: Compare versions and exit if not newer
+        run: |
+          NEW_VERSION=${{ needs.details.outputs.new_version }}
+          LATEST_VERSION=$latest_previous_version
+          if dpkg --compare-versions "$NEW_VERSION" gt "$LATEST_VERSION"; then
+              echo "[INFO] The new version $NEW_VERSION is greater than the latest version $LATEST_VERSION on PyPI."
+          else
+              echo "[INFO] The new version $NEW_VERSION is not greater than the latest version $LATEST_VERSION on PyPI."
+            exit 1
+          fi
+
+  build_and_publish:
+    name: Build and publish package to PyPI
+    needs: [details, check_pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        uses: abatilo/actions-poetry@v4
+        with:
+          poetry-version: "2.2.1"
+
+      - name: Set project version with Poetry
+        run: |
+          poetry version ${{ needs.details.outputs.new_version }}
+
+      - name: Install dependencies
+        run: |
+          poetry sync
+          poetry install --no-interaction
+
+      - name: Build source and wheel distribution
+        run: |
+          poetry build
+
+      - name: Publish to PyPI
+        run: |
+          poetry config repositories.pypirepository ${{ env.PYPI_REPOSITORY_URL }}
+          poetry publish --repository pypirepository --username __token__ --password ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  github_release:
+    name: Publish GitHub release
+    needs: [details, build_and_publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub release
+        id: create_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ needs.details.outputs.is_beta }}" = "true" ]; then
+              gh release create ${{ needs.details.outputs.tag_name }} dist/* --title ${{ needs.details.outputs.tag_name }} --generate-notes --prerelease
+          else
+              gh release create ${{ needs.details.outputs.tag_name }} dist/* --title ${{ needs.details.outputs.tag_name }} --generate-notes
+          fi
+
+  delete_old_betas:
+    name: Cleanup old beta tags and releases
+    needs: [details, build_and_publish, github_release]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt update && sudo apt install gh -y
+
+      - name: Delete old beta tags and releases
+        shell: bash
+        run: |
+          echo "[INFO] Current version: ${{ needs.details.outputs.tag_name }}"
+
+          # Fetch all tags from origin
+          git fetch --tags
+
+          # Find all beta tags containing 'b'
+          BETA_TAGS=$(git tag -l "*b*")
+
+          # Loop safely over tags (handle spaces/newlines)
+          IFS=$'\n'
+          for TAG in $BETA_TAGS; do
+            # Skip current version
+            if [ "$TAG" = "${{ needs.details.outputs.tag_name }}" ]; then
+              continue
+            fi
+
+            # Compare versions (delete only older than the current version)
+            if [ "$(printf '%s\n' "$TAG" "${{ needs.details.outputs.tag_name }}" | sort -rV | head -n 1)" != "$TAG" ]; then
+              echo "[INFO] Deleting older beta tag and release: $TAG"
+              
+              # Delete the tag from origin
+              git push origin --delete "$TAG"
+
+              # Find associated release
+              RELEASE_ID=$(gh release list --repo $GITHUB_REPOSITORY --limit 100 | awk '{print $1}' | grep -x "$TAG")
+              if [ -n "$RELEASE_ID" ]; then
+                gh release delete "$RELEASE_ID" --repo $GITHUB_REPOSITORY --yes
+                echo "[INFO] Deleted release $TAG"
+              fi
+            fi
+          done
+          unset IFS

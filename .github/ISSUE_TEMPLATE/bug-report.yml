@@ -1,0 +1,58 @@
+---
+body:
+  - attributes:
+      description: Please search to see, if this bug is already reported.
+      label: Duplicate Request?
+      options:
+        - label: This request is unique.
+          required: true
+    type: checkboxes
+  - attributes:
+      description: Specify your operating system (e.g. Windows 10 22H2).
+      label: Operating System
+      placeholder: Enter your operating system
+    type: input
+    validations:
+      required: true
+  - attributes:
+      description: Provide the version of step-cli-tools you were using (for example 1.2.3).
+      label: Software Version
+      placeholder: Enter software version
+    type: input
+    validations:
+      required: true
+  - attributes:
+      description: Select the type of issue you encountered.
+      label: Issue Type
+      options:
+        - label: Crash
+        - label: Warning Message
+        - label: Other Issue
+    type: checkboxes
+    validations:
+      required: true
+  - attributes:
+      description: Describe the specific actions you took, that led to the problem.
+      label: Action(s) Leading To The Issue
+      placeholder: 'For example: I performed the following steps...'
+    type: textarea
+    validations:
+      required: true
+  - attributes:
+      description: If there's an error message, provide it here.
+      label: Error Message
+      placeholder: Enter the error message (if any)
+    type: textarea
+    validations:
+      required: false
+  - attributes:
+      description: Share any extra details or context that might help in understanding the issue.
+      label: Additional Information
+      placeholder: Space for additional information...
+    type: textarea
+    validations:
+      required: false
+description: Report a software bug
+labels: ["bug"]
+name: Bug Report
+title: Bug Report
