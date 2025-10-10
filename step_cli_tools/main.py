@@ -1,6 +1,15 @@
-import platform, os, sys, subprocess, re
+# --- Standard library imports ---
+import os
+import platform
+import re
+import ssl
+import subprocess
+import sys
+import urllib.request
+from importlib.metadata import PackageNotFoundError, version
+
+# --- Third-party imports ---
 from rich.panel import Panel
-from importlib.metadata import version, PackageNotFoundError
 
 # Allows the script to be run directly and still find the package modules
 if __name__ == "__main__" and __package__ is None:
@@ -8,6 +17,7 @@ if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, parent_dir)
     __package__ = "step_cli_tools"
 
+# --- Local application imports ---
 from .support_functions import (
     console,
     ask_boolean_question,
@@ -18,6 +28,7 @@ from .support_functions import (
     find_windows_cert_by_sha256,
     find_linux_cert_by_sha256,
 )
+
 
 STEP_BIN = get_step_binary_path()
 
@@ -64,15 +75,25 @@ def operation1():
         # Default port for step-ca
         port = 9000
 
-    ca_url = f"https://{ca_server}:{port}"
+    # Check CA health endpoint
+    ca_url = f"https://{ca_server}:{port}/health"
     console.print(f"[INFO] Checking CA health at {ca_url} ...")
-
-    result = execute_step_command(["ca", "health", "--ca-url", ca_url], STEP_BIN)
-    if result and "ok" in result.lower():
-        console.print(f"[INFO] CA at {ca_url} is healthy.")
-    else:
+    try:
+        # Ignore SSL verification in case the root ca is not yet trusted
+        context = ssl._create_unverified_context()
+        with urllib.request.urlopen(ca_url, context=context, timeout=10) as response:
+            output = response.read().decode("utf-8").strip()
+            if "ok" in output.lower():
+                console.print(f"[INFO] CA at {ca_url} is healthy.")
+            else:
+                console.print(
+                    f"[ERROR] CA health check failed for {ca_url}. Is the port correct and the server available?",
+                    style="red",
+                )
+                return
+    except Exception as e:
         console.print(
-            f"[ERROR] CA health check failed for {ca_url}. Is the port correct and the server reachable?",
+            f"[ERROR] CA health check failed: {e}\n\nIs the port correct and the server available?",
             style="red",
         )
         return
@@ -152,12 +173,13 @@ def operation2():
 
     if system == "Windows":
         console.print(
-            f"[INFO] Searching for certificate in Windows user ROOT store with fingerprint {fingerprint} ..."
+            f"[INFO] Searching for certificate in Windows user ROOT store with fingerprint '{fingerprint}' ..."
         )
         cert_info = find_windows_cert_by_sha256(fingerprint)
         if not cert_info:
             console.print(
-                f"[ERROR] Certificate with fingerprint {fingerprint} not found in Windows ROOT store."
+                f"[ERROR] Certificate with fingerprint '{fingerprint}' not found in Windows ROOT store.",
+                style="red",
             )
             return
         thumbprint, cn = cert_info
@@ -177,17 +199,19 @@ def operation2():
             )
         else:
             console.print(
-                f"[ERROR] Failed to remove certificate: {result.stderr.strip()}"
+                f"[ERROR] Failed to remove certificate: {result.stderr.strip()}",
+                style="red",
             )
 
     elif system == "Linux":
         console.print(
-            f"[INFO] Searching for certificate in Linux trust store with fingerprint {fingerprint} ..."
+            f"[INFO] Searching for certificate in Linux trust store with fingerprint '{fingerprint}' ..."
         )
         cert_info = find_linux_cert_by_sha256(fingerprint)
         if not cert_info:
             console.print(
-                f"[ERROR] Certificate with fingerprint {fingerprint} not found in Linux trust store."
+                f"[ERROR] Certificate with fingerprint '{fingerprint}' not found in Linux trust store.",
+                style="red",
             )
             return
         cert_path, cn = cert_info
@@ -198,19 +222,26 @@ def operation2():
             console.print("[INFO] Operation cancelled by user.")
             return
 
-        # Delete the certificate file
         try:
+            # Check if it's a symlink and remove target first
+            if os.path.islink(cert_path):
+                target_path = os.readlink(cert_path)
+                if os.path.exists(target_path):
+                    subprocess.run(["sudo", "rm", target_path], check=True)
+
             subprocess.run(["sudo", "rm", cert_path], check=True)
-            # Update trust store
             subprocess.run(["sudo", "update-ca-certificates", "--fresh"], check=True)
             console.print(
                 f"[INFO] Certificate with CN '{cn}' removed from Linux trust store."
             )
         except subprocess.CalledProcessError as e:
-            console.print(f"[ERROR] Failed to remove certificate: {e}")
+            console.print(f"[ERROR] Failed to remove certificate: {e}", style="red")
 
-    else:
-        console.print(f"[ERROR] Unsupported platform: {system}")
+        else:
+            console.print(
+                f"[ERROR] Unsupported platform: {system}",
+                style="red",
+            )
 
 
 # --- Main function ---
