@@ -88,16 +88,28 @@ jobs:
           echo "Latest version on PyPI: $latest_previous_version"
           echo "latest_previous_version=$latest_previous_version" >> $GITHUB_ENV
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install packaging
+        run: python3 -m pip install --upgrade pip packaging
+
       - name: Compare versions and exit if not newer
         run: |
-          NEW_VERSION=${{ needs.details.outputs.new_version }}
-          LATEST_VERSION=$latest_previous_version
-          if dpkg --compare-versions "$NEW_VERSION" gt "$LATEST_VERSION"; then
-              echo "[INFO] The new version $NEW_VERSION is greater than the latest version $LATEST_VERSION on PyPI."
-          else
-              echo "[INFO] The new version $NEW_VERSION is not greater than the latest version $LATEST_VERSION on PyPI."
-            exit 1
-          fi
+          python3 - <<'EOF'
+          from packaging.version import parse
+
+          new_version = parse("${{ needs.details.outputs.new_version }}")
+          latest_version = parse("$latest_previous_version")
+
+          if new_version > latest_version:
+              print(f"[INFO] The new version {new_version} is greater than the latest version {latest_version} on PyPI.")
+          else:
+              print(f"[INFO] The new version {new_version} is not greater than the latest version {latest_version} on PyPI.")
+              exit(1)
+          EOF
 
   build_and_publish:
     name: Build and publish package to PyPI

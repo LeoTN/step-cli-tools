@@ -43,28 +43,31 @@ jobs:
         run: |
           CURRENT_VERSION="$LATEST_RELEASE"
 
-          # Extract numeric parts
+          # Check if the current version is already a beta
           if [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)b([0-9]+)$ ]]; then
             MAJOR="${BASH_REMATCH[1]}"
             MINOR="${BASH_REMATCH[2]}"
             PATCH="${BASH_REMATCH[3]}"
             BETA="${BASH_REMATCH[4]}"
-          else
-            # Fallback: If no beta version exists, start with b0 (later increment to b1)
-            if [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              MAJOR="${BASH_REMATCH[1]}"
-              MINOR="${BASH_REMATCH[2]}"
-              PATCH="${BASH_REMATCH[3]}"
-              BETA=0
-            else
-              echo "[ERROR] Could not parse latest release version: $CURRENT_VERSION"
-              exit 1
-            fi
-          fi
 
-          # Increment beta version
-          NEXT_BETA=$((BETA + 1))
-          FINAL_BETA_VERSION="${MAJOR}.${MINOR}.${PATCH}b${NEXT_BETA}"
+            # Increment beta version
+            NEXT_BETA=$((BETA + 1))
+            FINAL_BETA_VERSION="${MAJOR}.${MINOR}.${PATCH}b${NEXT_BETA}"
+
+          # If current version is a stable release
+          elif [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+
+            # Increment patch and start beta at 0
+            PATCH=$((PATCH + 1))
+            FINAL_BETA_VERSION="${MAJOR}.${MINOR}.${PATCH}b0"
+
+          else
+            echo "[ERROR] Could not parse latest release version: $CURRENT_VERSION"
+            exit 1
+          fi
 
           echo "[INFO] New beta version: $FINAL_BETA_VERSION"
           echo "FINAL_BETA_VERSION=$FINAL_BETA_VERSION" >> $GITHUB_OUTPUT
