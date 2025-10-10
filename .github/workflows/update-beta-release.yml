@@ -30,12 +30,13 @@ jobs:
       - name: Get latest release version
         id: get_latest_release_version_id
         run: |
-          LATEST_RELEASE=$(gh release list --limit 1 --order desc --repo "$GITHUB_REPOSITORY" | awk '{print $1}')
-          if [ -z "$LATEST_RELEASE" ]; then
-            echo "[ERROR] No releases found in the repository."
-            exit 1
-          fi
-          echo "[INFO] Latest release: $LATEST_RELEASE"
+          LATEST_RELEASE=$(
+            gh release list --repo "$GITHUB_REPOSITORY" --limit 50 \
+            | awk '{print $1}' \
+            | sort -V \
+            | tail -n 1
+          )
+          echo "[INFO] Latest release tag: $LATEST_RELEASE"
           echo "LATEST_RELEASE=$LATEST_RELEASE" >> $GITHUB_ENV
 
       - name: Figure out beta release version

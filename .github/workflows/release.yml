@@ -93,7 +93,7 @@ jobs:
             | awk '{print $2}')
 
           if [ -z "$latest_previous_version" ]; then
-            echo "[WARNING] Package (version) not found on PyPI.
+            echo "[ERROR] Package (version) not found on PyPI."
             exit 1
           fi
 
