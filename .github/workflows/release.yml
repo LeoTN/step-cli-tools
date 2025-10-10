@@ -77,28 +77,33 @@ jobs:
     needs: details
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch information from PyPI
-        run: |
-          response=$(curl -s ${{ env.PYPI_API_URL }}${{ env.PACKAGE_NAME }}/json || echo "{}")
-          latest_previous_version=$(echo $response | jq --raw-output "select(.releases != null) | .releases | keys_unsorted | last")
-          if [ -z "$latest_previous_version" ]; then
-            echo "Package not found on PyPI."
-            latest_previous_version="0.0.0"
-          fi
-          echo "Latest version on PyPI: $latest_previous_version"
-          echo "latest_previous_version=$latest_previous_version" >> $GITHUB_ENV
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install packaging
-        run: python3 -m pip install --upgrade pip packaging
+        run: python3 -m pip install packaging --upgrade
+
+      - name: Fetch latest PyPI version
+        run: |
+          # Get the latest version from PyPI using pip
+          latest_previous_version=$(pip index versions "${{ env.PACKAGE_NAME }}" --pre 2>/dev/null \
+            | grep -Eo 'LATEST:\s*[0-9][^ ]*' \
+            | awk '{print $2}')
+
+          if [ -z "$latest_previous_version" ]; then
+            echo "[WARNING] Package (version) not found on PyPI.
+            exit 1
+          fi
+
+          echo "[INFO] Latest version on PyPI: $latest_previous_version"
+          echo "latest_previous_version=$latest_previous_version" >> $GITHUB_ENV
 
       - name: Compare versions and exit if not newer
         run: |
-          python3 - <<'EOF'
+          python3 - <<EOF
+          import sys
           from packaging.version import parse
 
           new_version = parse("${{ needs.details.outputs.new_version }}")
@@ -108,7 +113,7 @@ jobs:
               print(f"[INFO] The new version {new_version} is greater than the latest version {latest_version} on PyPI.")
           else:
               print(f"[INFO] The new version {new_version} is not greater than the latest version {latest_version} on PyPI.")
-              exit(1)
+              sys.exit(1)
           EOF
 
   build_and_publish:
