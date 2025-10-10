@@ -27,17 +27,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install packaging
+        run: python3 -m pip install packaging --upgrade
+
       - name: Get latest release version
         id: get_latest_release_version_id
         run: |
-          LATEST_RELEASE=$(
-            gh release list --repo "$GITHUB_REPOSITORY" --limit 50 \
-            | awk '{print $1}' \
-            | sort -V \
-            | tail -n 1
-          )
-          echo "[INFO] Latest release tag: $LATEST_RELEASE"
-          echo "LATEST_RELEASE=$LATEST_RELEASE" >> $GITHUB_ENV
+          python3 - <<EOF
+          import subprocess
+          from packaging.version import parse
+
+          releases = subprocess.run(
+              ["gh", "release", "list", "--repo", "$GITHUB_REPOSITORY", "--limit", "50"],
+              capture_output=True, text=True
+          ).stdout.splitlines()
+
+          versions = []
+          for line in releases:
+              tag = line.split()[0]
+              versions.append(parse(tag))
+
+          latest = max(versions)
+          print(f"[INFO] Latest release (semver): {latest}")
+          with open("/github/env", "a") as f:
+              f.write(f"LATEST_RELEASE={latest}\n")
+          EOF
 
       - name: Figure out beta release version
         id: set_latest_release_version_id
