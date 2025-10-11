@@ -41,7 +41,9 @@ def show_operations():
         "2) Uninstall root CA from the system (Windows & Linux)",
     ]
     menu_text = "\n".join(options)
-    console.print(Panel(menu_text, title="Available Operations", border_style="cyan"))
+    console.print(
+        Panel(menu_text, title="Available Operations", border_style="#F08A5D")
+    )
 
 
 # --- Operations ---
@@ -53,7 +55,7 @@ def operation1():
         "This may pose a potential security risk to your device.\n"
         "Make sure you fully trust the CA before proceeding!"
     )
-    console.print(Panel.fit(warning_text, title="WARNING", border_style="yellow"))
+    console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
     # Ask for CA server hostname or IP (optionally with port)
     ca_input = ask_string_question(
@@ -144,7 +146,7 @@ def operation2():
         "This is a sensitive operation and can affect system security.\n"
         "Proceed only if you know what you are doing!"
     )
-    console.print(Panel.fit(warning_text, title="WARNING", border_style="yellow"))
+    console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
     # Ask for fingerprint of the root certificate
     fingerprint = (
@@ -237,11 +239,11 @@ def operation2():
         except subprocess.CalledProcessError as e:
             console.print(f"[ERROR] Failed to remove certificate: {e}", style="red")
 
-        else:
-            console.print(
-                f"[ERROR] Unsupported platform: {system}",
-                style="red",
-            )
+    else:
+        console.print(
+            f"[ERROR] Unsupported platform: {system}",
+            style="red",
+        )
 
 
 # --- Main function ---
@@ -252,19 +254,19 @@ def main():
         pkg_version = version("step-cli-tools")
     except PackageNotFoundError:
         pkg_version = "development"
-    logo = (
-        r"""
-     _                    _ _   _              _     
- ___| |_ ___ _ __     ___| (_) | |_ ___   ___ | |___ 
-/ __| __/ _ \ '_ \   / __| | | | __/ _ \ / _ \| / __|
-\__ \ ||  __/ |_) | | (__| | | | || (_) | (_) | \__ \
-|___/\__\___| .__/   \___|_|_|  \__\___/ \___/|_|___/
-            |_|                                                                                                                        
+
+    logo = """
+[#F9ED69]     _                    _ _   _              _     [/]
+[#F9ED69] ___| |_ ___ _ __     ___| (_) | |_ ___   ___ | |___ [/]
+[#F08A5D]/ __| __/ _ \\ '_ \\   / __| | | | __/ _ \\ / _ \\| / __|[/]
+[#F08A5D]\\__ \\ ||  __/ |_) | | (__| | | | || (_) | (_) | \\__ \\
+[#B83B5E]|___/\\__\\___| .__/   \\___|_|_|  \\__\\___/ \\___/|_|___/[/]
+[#B83B5E]            |_|                                         [/]
 """
-        + f"\nMade by LeoTN - Version {pkg_version}\n"
+    console.print(f"{logo}")
+    console.print(
+        f"[dim]Made by[/dim] [link=https://github.com/LeoTN bold]LeoTN[/link][dim] - Version[/] [link=https://github.com/LeoTN/step-cli-tools/releases/tag/{pkg_version} bold #FFFFFF]{pkg_version}[/]"
     )
-    # Use normal print to preserve ASCII art formatting
-    print(logo)
 
     if not os.path.exists(STEP_BIN):
         if ask_boolean_question("step CLI not found. Do you want to install it now?"):
