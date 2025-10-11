@@ -71,8 +71,8 @@ jobs:
           print(f"[INFO] Latest release (semver): {latest_version}")
 
           env_file = os.environ.get("GITHUB_ENV")
-              with open(env_file, "a") as f:
-                f.write(f"LATEST_RELEASE={latest_version}\n")
+          with open(env_file, "a") as f:
+            f.write(f"LATEST_RELEASE={latest_version}\n")
           EOF
 
       - name: Figure out beta release version
