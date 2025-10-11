@@ -87,10 +87,9 @@ jobs:
 
       - name: Fetch latest PyPI version
         run: |
-          # Get the latest version from PyPI using pip
-          latest_previous_version=$(pip index versions "${{ env.PACKAGE_NAME }}" --pre 2>/dev/null \
-            | grep -Eo 'LATEST:\s*[0-9][^ ]*' \
-            | awk '{print $2}')
+          # Get the latest version from PyPI
+          latest_previous_version=$(curl -s https://pypi.org/pypi/${{ env.PACKAGE_NAME }}/json | \
+          grep -Po '"version":\s*"\K[0-9A-Za-z\.\-]+(?=")' | tail -n 1)
 
           if [ -z "$latest_previous_version" ]; then
             echo "[ERROR] Package (version) not found on PyPI."
