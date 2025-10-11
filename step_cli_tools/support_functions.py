@@ -1,19 +1,20 @@
-import platform
+# --- Standard library imports ---
 import os
-import sys
-import subprocess
+import platform
 import shutil
-import tempfile
+import subprocess
 import tarfile
-import re
-
-from zipfile import ZipFile
+import tempfile
 from urllib.request import urlopen
+from zipfile import ZipFile
+import warnings
+
+# --- Third-party imports ---
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
+from cryptography.utils import CryptographyDeprecationWarning
 from rich.console import Console
-from rich.panel import Panel
 
 
 console = Console()
@@ -186,17 +187,23 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
         console.print(f"[ERROR] Cert directory not found: {cert_dir}", style="red")
         return None
 
-    for cert_file in os.listdir(cert_dir):
-        path = os.path.join(cert_dir, cert_file)
-        if os.path.isfile(path):
-            try:
-                with open(path, "rb") as f:
-                    cert_data = f.read()
-                    cert = x509.load_pem_x509_certificate(cert_data, default_backend())
-                    fp = cert.fingerprint(hashes.SHA256()).hex()
-                    if fp.lower() == fingerprint:
-                        return (path, cert.subject.rfc4514_string())
-            except Exception:
-                continue
+    # Ignore deprecation warnings about non-positive serial numbers
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
+
+        for cert_file in os.listdir(cert_dir):
+            path = os.path.join(cert_dir, cert_file)
+            if os.path.isfile(path):
+                try:
+                    with open(path, "rb") as f:
+                        cert_data = f.read()
+                        cert = x509.load_pem_x509_certificate(
+                            cert_data, default_backend()
+                        )
+                        fp = cert.fingerprint(hashes.SHA256()).hex()
+                        if fp.lower() == fingerprint:
+                            return (path, cert.subject.rfc4514_string())
+                except Exception:
+                    continue
 
     return None
