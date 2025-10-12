@@ -204,35 +204,40 @@ jobs:
       - name: Delete old beta tags and releases
         shell: bash
         run: |
-          echo "[INFO] Current version: ${{ needs.details.outputs.tag_name }}"
+          CURRENT_TAG="${{ needs.details.outputs.tag_name }}"
+          echo "[INFO] Current beta version: $CURRENT_TAG"
 
           # Fetch all tags from origin
           git fetch --tags
 
-          # Find all beta tags containing 'b'
+          # List all beta tags (tags containing 'b')
           BETA_TAGS=$(git tag -l "*b*")
 
-          # Loop safely over tags (handle spaces/newlines)
+          if [ -z "$BETA_TAGS" ]; then
+            echo "[INFO] No beta tags found."
+            exit 0
+          fi
+
+          # Loop safely over beta tags
           IFS=$'\n'
           for TAG in $BETA_TAGS; do
-            # Skip current version
-            if [ "$TAG" = "${{ needs.details.outputs.tag_name }}" ]; then
+            if [ "$TAG" = "$CURRENT_TAG" ]; then
+              echo "[INFO] Skipping current beta tag: $TAG"
               continue
             fi
 
-            # Compare versions (delete only older than the current version)
-            if [ "$(printf '%s\n' "$TAG" "${{ needs.details.outputs.tag_name }}" | sort -rV | head -n 1)" != "$TAG" ]; then
-              echo "[INFO] Deleting older beta tag and release: $TAG"
-              
-              # Delete the tag from origin
-              git push origin --delete "$TAG"
+            echo "[INFO] Deleting old beta tag and release: $TAG"
 
-              # Find associated release
-              RELEASE_ID=$(gh release list --repo $GITHUB_REPOSITORY --limit 100 | awk '{print $1}' | grep -x "$TAG")
-              if [ -n "$RELEASE_ID" ]; then
-                gh release delete "$RELEASE_ID" --repo $GITHUB_REPOSITORY --yes
-                echo "[INFO] Deleted release $TAG"
-              fi
+            # Delete the tag from origin (ignore errors if tag already gone)
+            git push origin --delete "$TAG" 2>/dev/null || echo "[WARNING] Tag $TAG not found on remote."
+
+            # Find and delete associated GitHub release
+            RELEASE_ID=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 | awk '{print $1}' | grep -x "$TAG")
+            if [ -n "$RELEASE_ID" ]; then
+              gh release delete "$RELEASE_ID" --repo "$GITHUB_REPOSITORY" --yes
+              echo "[INFO] Deleted release $TAG"
+            else
+              echo "[INFO] No release found for $TAG"
             fi
           done
           unset IFS

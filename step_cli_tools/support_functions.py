@@ -19,6 +19,16 @@ from rich.console import Console
 
 console = Console()
 
+__all__ = [
+    "console",
+    "ask_boolean_question",
+    "get_step_binary_path",
+    "install_step_cli",
+    "execute_step_command",
+    "find_windows_cert_by_sha256",
+    "find_linux_cert_by_sha256",
+]
+
 
 def ask_boolean_question(prompt_text: str) -> bool:
     """Ask a yes/no question and return a boolean."""
@@ -31,19 +41,6 @@ def ask_boolean_question(prompt_text: str) -> bool:
         else:
             console.print(
                 "[ERROR] Invalid input. Please enter 'y' or 'n'.", style="red"
-            )
-
-
-def ask_string_question(prompt_text: str) -> str:
-    """Ask for a non-empty string and return it."""
-    while True:
-        response = input(f"{prompt_text}: ").strip()
-        if response:
-            return response
-        else:
-            console.print(
-                "[ERROR] Input cannot be empty. Please enter a valid string.",
-                style="red",
             )
 
 
@@ -105,7 +102,7 @@ def install_step_cli(step_bin: str):
     shutil.move(extracted_path, step_bin)
     os.chmod(step_bin, 0o755)
 
-    console.print(f"[INFO] step CLI installed to {step_bin}")
+    console.print(f"[INFO] step CLI installed: {step_bin}")
 
     try:
         result = subprocess.run([step_bin, "version"], capture_output=True, text=True)

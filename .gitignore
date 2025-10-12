@@ -1,3 +1,5 @@
 /dist
 step_cli_tools/__pycache__
 poetry.lock
+*.ps1
+*.bat

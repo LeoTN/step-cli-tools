@@ -9,6 +9,7 @@ import urllib.request
 from importlib.metadata import PackageNotFoundError, version
 
 # --- Third-party imports ---
+import questionary
 from rich.panel import Panel
 
 # Allows the script to be run directly and still find the package modules
@@ -18,32 +19,43 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "step_cli_tools"
 
 # --- Local application imports ---
-from .support_functions import (
-    console,
-    ask_boolean_question,
-    ask_string_question,
-    get_step_binary_path,
-    install_step_cli,
-    execute_step_command,
-    find_windows_cert_by_sha256,
-    find_linux_cert_by_sha256,
+from .support_functions import *
+from .validators import *
+
+STEP_BIN = get_step_binary_path()
+# Default style to use for questionary
+DEFAULT_QY_STYLE = questionary.Style(
+    [
+        ("pointer", "fg:#F9ED69"),
+        ("highlighted", "fg:#F08A5D"),
+        ("question", "bold"),
+        ("answer", "fg:#F08A5D"),
+    ]
 )
 
 
-STEP_BIN = get_step_binary_path()
+def show_operations(switch: dict[str | None, object]) -> str | None:
+    """Display available operations and let the user select one interactively.
 
+    Args:
+        switch: Dictionary mapping option names (or None) to functions.
 
-def show_operations():
-    """Print available operations inside a Rich Panel."""
-    options = [
-        "0) Exit",
-        "1) Install root CA on the system",
-        "2) Uninstall root CA from the system (Windows & Linux)",
-    ]
-    menu_text = "\n".join(options)
-    console.print(
-        Panel(menu_text, title="Available Operations", border_style="#F08A5D")
-    )
+    Returns:
+        The selected option name (str) or None if canceled.
+    """
+    # Filter out None from the displayed options
+    options = [opt for opt in switch.keys() if opt is not None]
+
+    # Prompt user to select an operation
+    choice = questionary.select(
+        "Operation:",
+        style=DEFAULT_QY_STYLE,
+        choices=options,
+        use_search_filter=True,
+        use_jk_keys=False,
+    ).ask()
+
+    return choice
 
 
 # --- Operations ---
@@ -57,21 +69,17 @@ def operation1():
     )
     console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
-    # Ask for CA server hostname or IP (optionally with port)
-    ca_input = ask_string_question(
-        "Enter the step CA server hostname or IP (optionally with :port)"
-    )
+    # Ask for CA server hostname/IP and optional port
+    ca_input = questionary.text(
+        "Enter the step CA server hostname or IP (optionally with :port)",
+        style=DEFAULT_QY_STYLE,
+        validate=HostnamePortValidator,
+    ).ask()
 
     # Split host and port
     if ":" in ca_input:
         ca_server, port_str = ca_input.rsplit(":", 1)
-        try:
-            port = int(port_str)
-        except ValueError:
-            console.print(
-                f"[ERROR] Invalid port '{port_str}'. Must be a number.", style="red"
-            )
-            return
+        port = int(port_str)
     else:
         ca_server = ca_input
         # Default port for step-ca
@@ -102,26 +110,14 @@ def operation1():
 
     # Ask for fingerprint of the root certificate
     fingerprint = (
-        ask_string_question(
-            "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)"
+        questionary.text(
+            "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
+            style=DEFAULT_QY_STYLE,
+            validate=SHA256Validator,
         )
-        .strip()
+        .ask()
         .replace(":", "")
-        .lower()
     )
-
-    # Validate format
-    if not re.fullmatch(r"[A-Fa-f0-9]{64}", fingerprint):
-        console.print(
-            "[WARNING] The fingerprint does not match the expected format (64 hexadecimal characters).",
-            style="yellow",
-        )
-        if not ask_boolean_question("Do you want to proceed anyway?"):
-            console.print(
-                "[INFO] Operation cancelled by user due to invalid fingerprint."
-            )
-            return
-    console.print(f"[INFO] Using root CA fingerprint: {fingerprint}")
 
     # Build the ca bootstrap command
     bootstrap_args = [
@@ -150,25 +146,14 @@ def operation2():
 
     # Ask for fingerprint of the root certificate
     fingerprint = (
-        ask_string_question(
-            "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)"
+        questionary.text(
+            "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
+            style=DEFAULT_QY_STYLE,
+            validate=SHA256Validator,
         )
-        .strip()
+        .ask()
         .replace(":", "")
-        .lower()
     )
-
-    # Validate format
-    if not re.fullmatch(r"[A-Fa-f0-9]{64}", fingerprint):
-        console.print(
-            "[WARNING] The fingerprint does not match the expected format (64 hexadecimal characters).",
-            style="yellow",
-        )
-        if not ask_boolean_question("Do you want to proceed anyway?"):
-            console.print(
-                "[INFO] Operation cancelled by user due to invalid fingerprint."
-            )
-            return
 
     # Determine platform
     system = platform.system()
@@ -186,9 +171,13 @@ def operation2():
             return
         thumbprint, cn = cert_info
 
-        if not ask_boolean_question(
-            f"Do you really want to remove the certificate with CN: '{cn}'?"
-        ):
+        # Confirm the deletion
+        answer = questionary.confirm(
+            f"Do you really want to remove the certificate with CN: '{cn}'?",
+            style=DEFAULT_QY_STYLE,
+            default=False,
+        ).ask()
+        if not answer:
             console.print("[INFO] Operation cancelled by user.")
             return
 
@@ -218,9 +207,13 @@ def operation2():
             return
         cert_path, cn = cert_info
 
-        if not ask_boolean_question(
-            f"Do you really want to remove the certificate with CN: '{cn}'?"
-        ):
+        # Confirm the deletion
+        answer = questionary.confirm(
+            f"Do you really want to remove the certificate with CN: '{cn}'?",
+            style=DEFAULT_QY_STYLE,
+            default=False,
+        ).ask()
+        if not answer:
             console.print("[INFO] Operation cancelled by user.")
             return
 
@@ -265,29 +258,39 @@ def main():
 """
     console.print(f"{logo}")
     console.print(
-        f"[dim]Made by[/dim] [link=https://github.com/LeoTN bold]LeoTN[/link][dim] - Version[/] [link=https://github.com/LeoTN/step-cli-tools/releases/tag/{pkg_version} bold #FFFFFF]{pkg_version}[/]"
+        f"[dim]Made by[/dim] [link=https://github.com/LeoTN bold]LeoTN[/link][dim] - Version[/] [link=https://github.com/LeoTN/step-cli-tools/releases/tag/{pkg_version} bold #FFFFFF]{pkg_version}[/]\n"
     )
 
     if not os.path.exists(STEP_BIN):
-        if ask_boolean_question("step CLI not found. Do you want to install it now?"):
+        answer = questionary.confirm(
+            "Step CLI not found. Do you want to install it now?",
+            style=DEFAULT_QY_STYLE,
+            default=False,
+        ).ask()
+        if answer:
             install_step_cli(STEP_BIN)
         else:
             console.print("[INFO] Exiting program.")
             sys.exit(0)
 
-    while True:
-        show_operations()
-        choice = input("Operation number: ").strip()
+    switch = {
+        "Install root CA on the system": operation1,
+        "Uninstall root CA from the system (Windows & Linux)": operation2,
+        "Exit": sys.exit,
+        None: sys.exit,
+    }
 
-        if choice == "0":
-            console.print("[INFO] Exiting program.")
-            sys.exit(0)
-        elif choice == "1":
-            operation1()
-        elif choice == "2":
-            operation2()
-        else:
-            console.print("[ERROR] Invalid operation. Please try again.", style="red")
+    while True:
+        console.print()
+        operation = show_operations(switch)
+        action = switch.get(
+            operation,
+            lambda: console.print(
+                f"[WARNING] Unknown operation: {operation}", style="yellow"
+            ),
+        )
+        console.print()
+        action()
 
 
 # --- Entry point ---
