@@ -1,7 +1,6 @@
 # --- Standard library imports ---
 import os
 import platform
-import re
 import ssl
 import subprocess
 import sys
@@ -75,6 +74,10 @@ def operation1():
         style=DEFAULT_QY_STYLE,
         validate=HostnamePortValidator,
     ).ask()
+    # Check for empty input
+    if (ca_input is None) or (ca_input.strip() == ""):
+        console.print("[INFO] Operation cancelled by user.")
+        return
 
     # Split host and port
     if ":" in ca_input:
@@ -109,15 +112,16 @@ def operation1():
         return
 
     # Ask for fingerprint of the root certificate
-    fingerprint = (
-        questionary.text(
-            "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
-            style=DEFAULT_QY_STYLE,
-            validate=SHA256Validator,
-        )
-        .ask()
-        .replace(":", "")
-    )
+    fingerprint = questionary.text(
+        "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
+        style=DEFAULT_QY_STYLE,
+        validate=SHA256Validator,
+    ).ask()
+    # Check for empty input
+    if (fingerprint is None) or (fingerprint.strip() == ""):
+        console.print("[INFO] Operation cancelled by user.")
+        return
+    fingerprint = fingerprint.replace(":", "")
 
     # Build the ca bootstrap command
     bootstrap_args = [
@@ -145,15 +149,16 @@ def operation2():
     console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
     # Ask for fingerprint of the root certificate
-    fingerprint = (
-        questionary.text(
-            "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
-            style=DEFAULT_QY_STYLE,
-            validate=SHA256Validator,
-        )
-        .ask()
-        .replace(":", "")
-    )
+    fingerprint = questionary.text(
+        "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
+        style=DEFAULT_QY_STYLE,
+        validate=SHA256Validator,
+    ).ask()
+    # Check for empty input
+    if (fingerprint is None) or (fingerprint.strip() == ""):
+        console.print("[INFO] Operation cancelled by user.")
+        return
+    fingerprint = fingerprint.replace(":", "")
 
     # Determine platform
     system = platform.system()
@@ -243,11 +248,27 @@ def operation2():
 
 
 def main():
+    pkg_name = "step-cli-tools"
+    profile_url = "https://github.com/LeoTN"
     try:
-        pkg_version = version("step-cli-tools")
+        pkg_version = version(pkg_name)
     except PackageNotFoundError:
         pkg_version = "development"
 
+    # Check for updates and display version info
+    latest_version = check_for_update(pkg_version, include_prerelease=False)
+    if latest_version:
+        latest_tag_url = f"{profile_url}/{pkg_name}/releases/tag/{latest_version}"
+        version_text = (
+            f"[#888888]Made by[/#888888] [link={profile_url} bold #FFFFFF]LeoTN[/link]"
+            f"[#888888] - Update {pkg_version} → [/#888888]"
+            f"[link={latest_tag_url} bold #FFFFFF]{latest_version}[/]\n"
+        )
+    else:
+        version_text = (
+            f"[#888888]Made by[/#888888] [link={profile_url} bold #FFFFFF]LeoTN[/link]"
+            f"[#888888] - Version [#FFFFFF]{pkg_version}[/]\n"
+        )
     logo = """
 [#F9ED69]     _                [#F08A5D]    _ _  [#B83B5E] _              _            [/]
 [#F9ED69] ___| |_ ___ _ __     [#F08A5D]___| (_) [#B83B5E]| |_ ___   ___ | |___        [/]
@@ -257,9 +278,7 @@ def main():
 [#F9ED69]            |_|       [#F08A5D]           [#B83B5E]                           [/]
 """
     console.print(f"{logo}")
-    console.print(
-        f"[dim]Made by[/dim] [link=https://github.com/LeoTN bold]LeoTN[/link][dim] - Version[/] [link=https://github.com/LeoTN/step-cli-tools/releases/tag/{pkg_version} bold #FFFFFF]{pkg_version}[/]\n"
-    )
+    console.print(version_text)
 
     if not os.path.exists(STEP_BIN):
         answer = questionary.confirm(

@@ -1,10 +1,14 @@
 # --- Standard library imports ---
+import json
 import os
 import platform
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
+import urllib.request
+from pathlib import Path
 from urllib.request import urlopen
 from zipfile import ZipFile
 import warnings
@@ -14,6 +18,7 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.utils import CryptographyDeprecationWarning
+from packaging import version
 from rich.console import Console
 
 
@@ -22,6 +27,7 @@ console = Console()
 __all__ = [
     "console",
     "ask_boolean_question",
+    "check_for_update",
     "get_step_binary_path",
     "install_step_cli",
     "execute_step_command",
@@ -42,6 +48,53 @@ def ask_boolean_question(prompt_text: str) -> bool:
             console.print(
                 "[ERROR] Invalid input. Please enter 'y' or 'n'.", style="red"
             )
+
+
+def check_for_update(
+    current_version: str, include_prerelease: bool = False
+) -> str | None:
+    """Check PyPI for updates (cached for 24h). Optionally include pre-releases. Return latest version string or None."""
+    pkg = "step-cli-tools"
+    cache = Path(tempfile.gettempdir()) / f"{pkg}_update_check.json"
+    now = time.time()
+
+    # Use cache if less than 24h old
+    if cache.exists():
+        try:
+            data = json.loads(cache.read_text())
+            latest_version = data.get("latest_version")
+            # Return cached version if still valid
+            if (
+                latest_version
+                and now - data.get("time", 0) < 86400
+                and version.parse(latest_version) > version.parse(current_version)
+            ):
+                return latest_version
+        except json.JSONDecodeError:
+            pass
+
+    try:
+        with urllib.request.urlopen(
+            f"https://pypi.org/pypi/{pkg}/json", timeout=5
+        ) as r:
+            data = json.load(r)
+            # Skip empty or invalid releases
+            releases = [r for r, files in data["releases"].items() if files]
+
+        if not include_prerelease:
+            releases = [r for r in releases if not version.parse(r).is_prerelease]
+
+        if not releases:
+            return
+
+        latest_version = max(releases, key=version.parse)
+        cache.write_text(json.dumps({"time": now, "latest_version": latest_version}))
+
+        if version.parse(latest_version) > version.parse(current_version):
+            return latest_version
+
+    except Exception:
+        return
 
 
 def get_step_binary_path() -> str:
