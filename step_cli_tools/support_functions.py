@@ -19,16 +19,13 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.utils import CryptographyDeprecationWarning
 from packaging import version
-from rich.console import Console
 
-
-console = Console()
+# --- Local application imports ---
+from .common import *
 
 __all__ = [
-    "console",
     "ask_boolean_question",
     "check_for_update",
-    "get_step_binary_path",
     "install_step_cli",
     "execute_step_command",
     "find_windows_cert_by_sha256",
@@ -55,7 +52,7 @@ def check_for_update(
 ) -> str | None:
     """Check PyPI for updates (cached for 24h). Optionally include pre-releases. Return latest version string or None."""
     pkg = "step-cli-tools"
-    cache = Path(tempfile.gettempdir()) / f"{pkg}_update_check.json"
+    cache = Path.home() / f"{pkg}" / ".update_check.json"
     now = time.time()
 
     # Use cache if less than 24h old
@@ -95,18 +92,6 @@ def check_for_update(
 
     except Exception:
         return
-
-
-def get_step_binary_path() -> str:
-    """Return absolute path to step-cli binary depending on OS."""
-    home = os.path.expanduser("~")
-    system = platform.system()
-    if system == "Windows":
-        return os.path.join(home, "bin", "step.exe")
-    elif system in ("Linux", "Darwin"):
-        return os.path.join(home, "bin", "step")
-    else:
-        raise OSError(f"Unsupported platform: {system}")
 
 
 def install_step_cli(step_bin: str):

@@ -8,7 +8,6 @@ import urllib.request
 from importlib.metadata import PackageNotFoundError, version
 
 # --- Third-party imports ---
-import questionary
 from rich.panel import Panel
 
 # Allows the script to be run directly and still find the package modules
@@ -18,19 +17,9 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "step_cli_tools"
 
 # --- Local application imports ---
+from .common import *
 from .support_functions import *
 from .validators import *
-
-STEP_BIN = get_step_binary_path()
-# Default style to use for questionary
-DEFAULT_QY_STYLE = questionary.Style(
-    [
-        ("pointer", "fg:#F9ED69"),
-        ("highlighted", "fg:#F08A5D"),
-        ("question", "bold"),
-        ("answer", "fg:#F08A5D"),
-    ]
-)
 
 
 def show_operations(switch: dict[str | None, object]) -> str | None:
@@ -46,7 +35,7 @@ def show_operations(switch: dict[str | None, object]) -> str | None:
     options = [opt for opt in switch.keys() if opt is not None]
 
     # Prompt user to select an operation
-    choice = questionary.select(
+    choice = qy.select(
         "Operation:",
         style=DEFAULT_QY_STYLE,
         choices=options,
@@ -69,7 +58,7 @@ def operation1():
     console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
     # Ask for CA server hostname/IP and optional port
-    ca_input = questionary.text(
+    ca_input = qy.text(
         "Enter the step CA server hostname or IP (optionally with :port)",
         style=DEFAULT_QY_STYLE,
         validate=HostnamePortValidator,
@@ -112,7 +101,7 @@ def operation1():
         return
 
     # Ask for fingerprint of the root certificate
-    fingerprint = questionary.text(
+    fingerprint = qy.text(
         "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
         style=DEFAULT_QY_STYLE,
         validate=SHA256Validator,
@@ -149,7 +138,7 @@ def operation2():
     console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
     # Ask for fingerprint of the root certificate
-    fingerprint = questionary.text(
+    fingerprint = qy.text(
         "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
         style=DEFAULT_QY_STYLE,
         validate=SHA256Validator,
@@ -177,7 +166,7 @@ def operation2():
         thumbprint, cn = cert_info
 
         # Confirm the deletion
-        answer = questionary.confirm(
+        answer = qy.confirm(
             f"Do you really want to remove the certificate with CN: '{cn}'?",
             style=DEFAULT_QY_STYLE,
             default=False,
@@ -213,7 +202,7 @@ def operation2():
         cert_path, cn = cert_info
 
         # Confirm the deletion
-        answer = questionary.confirm(
+        answer = qy.confirm(
             f"Do you really want to remove the certificate with CN: '{cn}'?",
             style=DEFAULT_QY_STYLE,
             default=False,
@@ -261,7 +250,7 @@ def main():
         latest_tag_url = f"{profile_url}/{pkg_name}/releases/tag/{latest_version}"
         version_text = (
             f"[#888888]Made by[/#888888] [link={profile_url} bold #FFFFFF]LeoTN[/link]"
-            f"[#888888] - Update {pkg_version} → [/#888888]"
+            f"[#888888] - Update Available: {pkg_version} → [/#888888]"
             f"[link={latest_tag_url} bold #FFFFFF]{latest_version}[/]\n"
         )
     else:
@@ -281,7 +270,7 @@ def main():
     console.print(version_text)
 
     if not os.path.exists(STEP_BIN):
-        answer = questionary.confirm(
+        answer = qy.confirm(
             "Step CLI not found. Do you want to install it now?",
             style=DEFAULT_QY_STYLE,
             default=False,
