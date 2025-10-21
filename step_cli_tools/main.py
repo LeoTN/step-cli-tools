@@ -89,7 +89,7 @@ def main():
         action = operation_switch.get(
             operation,
             lambda: console.print(
-                f"[WARNING] Unknown operation: {operation}", style="yellow"
+                f"[WARNING] Unknown operation: {operation}", style="#F9ED69"
             ),
         )
         console.print()

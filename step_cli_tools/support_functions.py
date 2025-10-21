@@ -44,7 +44,7 @@ def ask_boolean_question(prompt_text: str) -> bool:
             return False
         else:
             console.print(
-                "[ERROR] Invalid input. Please enter 'y' or 'n'.", style="red"
+                "[ERROR] Invalid input. Please enter 'y' or 'n'.", style="#B83B5E"
             )
 
 
@@ -116,7 +116,7 @@ def install_step_cli(step_bin: str):
         url = "https://github.com/smallstep/cli/releases/latest/download/step_darwin_amd64.tar.gz"
         archive_type = "tar.gz"
     else:
-        console.print(f"[ERROR] Unsupported platform: {system}", style="red")
+        console.print(f"[ERROR] Unsupported platform: {system}", style="#B83B5E")
         return
 
     tmp_dir = tempfile.mkdtemp()
@@ -152,14 +152,14 @@ def install_step_cli(step_bin: str):
         result = subprocess.run([step_bin, "version"], capture_output=True, text=True)
         console.print(f"[INFO] Installed step version:\n{result.stdout.strip()}")
     except Exception as e:
-        console.print(f"[ERROR] Failed to run step CLI: {e}", style="red")
+        console.print(f"[ERROR] Failed to run step CLI: {e}", style="#B83B5E")
 
 
 def execute_step_command(args, step_bin: str, interactive: bool = False):
     """Execute a step CLI command at the given binary path."""
     if not step_bin or not os.path.exists(step_bin):
         console.print(
-            "[ERROR] step CLI not found. Please install it first.", style="red"
+            "[ERROR] step CLI not found. Please install it first.", style="#B83B5E"
         )
         return None
 
@@ -169,7 +169,7 @@ def execute_step_command(args, step_bin: str, interactive: bool = False):
             if result.returncode != 0:
                 console.print(
                     f"[ERROR] step command failed with exit code {result.returncode}",
-                    style="red",
+                    style="#B83B5E",
                 )
                 return None
             return ""
@@ -177,12 +177,13 @@ def execute_step_command(args, step_bin: str, interactive: bool = False):
             result = subprocess.run([step_bin] + args, capture_output=True, text=True)
             if result.returncode != 0:
                 console.print(
-                    f"[ERROR] step command failed: {result.stderr.strip()}", style="red"
+                    f"[ERROR] step command failed: {result.stderr.strip()}",
+                    style="#B83B5E",
                 )
                 return None
             return result.stdout.strip()
     except Exception as e:
-        console.print(f"[ERROR] Failed to execute step command: {e}", style="red")
+        console.print(f"[ERROR] Failed to execute step command: {e}", style="#B83B5E")
         return None
 
 
@@ -205,7 +206,7 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
     if result.returncode != 0:
         console.print(
             f"[ERROR] Failed to query certificates: {result.stderr.strip()}",
-            style="red",
+            style="#B83B5E",
         )
         return None
 
@@ -225,7 +226,7 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
     fingerprint = sha256_fingerprint.lower().replace(":", "")
 
     if not os.path.isdir(cert_dir):
-        console.print(f"[ERROR] Cert directory not found: {cert_dir}", style="red")
+        console.print(f"[ERROR] Cert directory not found: {cert_dir}", style="#B83B5E")
         return None
 
     # Ignore deprecation warnings about non-positive serial numbers

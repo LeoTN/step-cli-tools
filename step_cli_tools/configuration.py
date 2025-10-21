@@ -51,7 +51,7 @@ class Configuration:
             try:
                 loaded = yaml.load(self.file_location.read_text()) or {}
             except Exception as e:
-                console.print(f"[WARNING] Failed to load config: {e}", style="yellow")
+                console.print(f"[WARNING] Failed to load config: {e}", style="#F9ED69")
                 loaded = {}
         else:
             loaded = {}
@@ -66,7 +66,7 @@ class Configuration:
         except (OSError, IOError) as e:
             console.print(
                 f"[ERROR] Could not save settings to {self.file_location}: {e}",
-                style="red",
+                style="#B83B5E",
             )
 
     def reset(self) -> bool:
@@ -104,7 +104,9 @@ class Configuration:
             return True
 
         except Exception as e:
-            console.print(f"[ERROR] Failed to reset configuration: {e}", style="red")
+            console.print(
+                f"[ERROR] Failed to reset configuration: {e}", style="#B83B5E"
+            )
             return False
 
     def get(self, key: str):
@@ -136,7 +138,7 @@ class Configuration:
             except Exception:
                 console.print(
                     f"[WARNING] Failed to cast value '{value}' to {expected_type.__name__} for key '{key}'",
-                    style="yellow",
+                    style="#F9ED69",
                 )
 
         data[parts[-1]] = value
@@ -168,7 +170,7 @@ class Configuration:
             parts = key.split(".")
             meta = self._nested_get_meta(parts)
             if not meta:
-                console.print(f"[WARNING] No schema entry for '{key}'", style="yellow")
+                console.print(f"[WARNING] No schema entry for '{key}'", style="#F9ED69")
                 return False
 
             validator = meta.get("validator")
@@ -182,7 +184,7 @@ class Configuration:
                 if not callable(validator):
                     console.print(
                         f"[WARNING] Validator for '{key}' is not callable: {validator!r}",
-                        style="yellow",
+                        style="#F9ED69",
                     )
                     return False
 
@@ -191,7 +193,7 @@ class Configuration:
             except Exception as e:
                 console.print(
                     f"[ERROR] Validator for '{key}' raised an exception: {e}",
-                    style="red",
+                    style="#B83B5E",
                 )
                 return False
 
@@ -199,13 +201,14 @@ class Configuration:
                 return True
             if isinstance(result, str):
                 console.print(
-                    f"[WARNING] Validation failed for '{key}': {result}", style="yellow"
+                    f"[WARNING] Validation failed for '{key}': {result}",
+                    style="#F9ED69",
                 )
                 return False
 
             console.print(
                 f"[ERROR] Validator for '{key}' returned unsupported value: {result!r}",
-                style="red",
+                style="#B83B5E",
             )
             return False
 
@@ -267,7 +270,7 @@ class Configuration:
                 if not isinstance(sub_data, dict):
                     console.print(
                         f"[WARNING] Expected dict at '{full_key}', got {type(sub_data).__name__}",
-                        style="yellow",
+                        style="#F9ED69",
                     )
                     ok = False
                 elif not self._validate_recursive(sub_data, meta, full_key):
@@ -284,7 +287,7 @@ class Configuration:
                     if not callable(validator):
                         console.print(
                             f"[WARNING] Validator for '{full_key}' is not callable: {validator!r}",
-                            style="yellow",
+                            style="#F9ED69",
                         )
                         ok = False
                         continue
@@ -293,19 +296,20 @@ class Configuration:
                     if isinstance(result, str):
                         console.print(
                             f"[WARNING] Validation failed for '{full_key}': {result}",
-                            style="yellow",
+                            style="#F9ED69",
                         )
                         ok = False
                     elif result is not None:
                         console.print(
                             f"[ERROR] Validator for '{full_key}' returned unsupported type: {result!r}",
-                            style="red",
+                            style="#B83B5E",
                         )
                         ok = False
 
                 except Exception as e:
                     console.print(
-                        f"[ERROR] Validator for '{full_key}' raised: {e}", style="red"
+                        f"[ERROR] Validator for '{full_key}' raised: {e}",
+                        style="#B83B5E",
                     )
                     ok = False
 
@@ -325,7 +329,7 @@ class Configuration:
             if not isinstance(data, dict) or k not in data:
                 console.print(
                     f"[WARNING] Missing default for key '{'.'.join(keys)}'",
-                    style="yellow",
+                    style="#F9ED69",
                 )
                 return None
             data = data[k]
@@ -428,7 +432,7 @@ def check_and_repair_config_file() -> None:
             is_valid = config.validate()
         except Exception as e:
             console.print(
-                f"[ERROR] Config validation raised an exception: {e}", style="red"
+                f"[ERROR] Config validation raised an exception: {e}", style="#B83B5E"
             )
             is_valid = False
 
@@ -475,7 +479,7 @@ def show_config_operations() -> None:
         action = config_operation_switch.get(
             operation,
             lambda: console.print(
-                f"[WARNING] Unknown operation: {operation}", style="yellow"
+                f"[WARNING] Unknown operation: {operation}", style="#F9ED69"
             ),
         )
 
@@ -506,7 +510,9 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False) -> None:
             config.load()
             is_valid = config.validate()
         except Exception as e:
-            console.print(f"[ERROR] Validation raised an exception: {e}", style="red")
+            console.print(
+                f"[ERROR] Validation raised an exception: {e}", style="#B83B5E"
+            )
             is_valid = False
 
         if is_valid:
@@ -514,7 +520,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False) -> None:
             break  # exit loop if valid
 
         # If validation failed
-        console.print("[ERROR] Configuration is invalid.", style="red")
+        console.print("[ERROR] Configuration is invalid.", style="#B83B5E")
         choice = qy.select(
             "Choose an action:",
             choices=[
@@ -594,7 +600,7 @@ def validate_with_feedback():
     if result is True:
         console.print("[INFO] Configuration is valid.", style="green")
     else:
-        console.print("[ERROR] Configuration is invalid.", style="red")
+        console.print("[ERROR] Configuration is invalid.", style="#B83B5E")
     return result
 
 
@@ -603,7 +609,7 @@ def reset_with_feedback():
     if result is True:
         console.print("[INFO] Configuration successfully reset.", style="green")
     else:
-        console.print("[ERROR] Configuration reset failed.", style="red")
+        console.print("[ERROR] Configuration reset failed.", style="#B83B5E")
     return result
 
 

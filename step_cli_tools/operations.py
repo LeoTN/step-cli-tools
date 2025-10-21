@@ -89,13 +89,13 @@ def operation1():
             else:
                 console.print(
                     f"[ERROR] CA health check failed for {ca_url}. Is the port correct and the server available?",
-                    style="red",
+                    style="#B83B5E",
                 )
                 return
     except Exception as e:
         console.print(
             f"[ERROR] CA health check failed: {e}\n\nIs the port correct and the server available?",
-            style="red",
+            style="#B83B5E",
         )
         return
 
@@ -159,7 +159,7 @@ def operation2():
         if not cert_info:
             console.print(
                 f"[ERROR] Certificate with fingerprint '{fingerprint}' not found in Windows ROOT store.",
-                style="red",
+                style="#B83B5E",
             )
             return
         thumbprint, cn = cert_info
@@ -184,7 +184,7 @@ def operation2():
         else:
             console.print(
                 f"[ERROR] Failed to remove certificate: {result.stderr.strip()}",
-                style="red",
+                style="#B83B5E",
             )
 
     elif system == "Linux":
@@ -195,7 +195,7 @@ def operation2():
         if not cert_info:
             console.print(
                 f"[ERROR] Certificate with fingerprint '{fingerprint}' not found in Linux trust store.",
-                style="red",
+                style="#B83B5E",
             )
             return
         cert_path, cn = cert_info
@@ -223,7 +223,7 @@ def operation2():
                 f"[INFO] Certificate with CN '{cn}' removed from Linux trust store."
             )
         except subprocess.CalledProcessError as e:
-            console.print(f"[ERROR] Failed to remove certificate: {e}", style="red")
+            console.print(f"[ERROR] Failed to remove certificate: {e}", style="#B83B5E")
 
     else:
-        console.print(f"[ERROR] Unsupported platform: {system}", style="red")
+        console.print(f"[ERROR] Unsupported platform: {system}", style="#B83B5E")
