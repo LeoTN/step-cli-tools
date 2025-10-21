@@ -22,6 +22,7 @@ from packaging import version
 
 # --- Local application imports ---
 from .common import *
+from .configuration import *
 
 __all__ = [
     "ask_boolean_question",
@@ -50,20 +51,25 @@ def ask_boolean_question(prompt_text: str) -> bool:
 def check_for_update(
     current_version: str, include_prerelease: bool = False
 ) -> str | None:
-    """Check PyPI for updates (cached for 24h). Optionally include pre-releases. Return latest version string or None."""
+    """Check PyPI for updates (cached for 24h by default). Optionally include pre-releases. Return latest version string or None."""
     pkg = "step-cli-tools"
-    cache = Path.home() / f"{pkg}" / ".update_check.json"
+    cache = Path.home() / f".{pkg}" / ".cache" / "update_check.json"
+    # Make sure the directory exists
+    cache.parent.mkdir(parents=True, exist_ok=True)
     now = time.time()
 
-    # Use cache if less than 24h old
+    # Use cache if less than 24h (by default) old
     if cache.exists():
         try:
             data = json.loads(cache.read_text())
             latest_version = data.get("latest_version")
+            chace_lifetime = int(
+                config.get("update_config.check_for_updates_cache_lifetime_seconds")
+            )
             # Return cached version if still valid
             if (
                 latest_version
-                and now - data.get("time", 0) < 86400
+                and now - data.get("time", 0) < chace_lifetime
                 and version.parse(latest_version) > version.parse(current_version)
             ):
                 return latest_version

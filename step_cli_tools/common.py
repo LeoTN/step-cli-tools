@@ -9,27 +9,13 @@ from rich.console import Console
 __all__ = [
     "console",
     "qy",
-    "STEP_BIN",
     "DEFAULT_QY_STYLE",
+    "SCRIPT_HOME_DIR",
+    "STEP_BIN",
 ]
 
 console = Console()
 qy = questionary
-
-
-def get_step_binary_path() -> str:
-    """Return absolute path to step-cli binary depending on OS."""
-    home = os.path.expanduser("~")
-    system = platform.system()
-    if system == "Windows":
-        return os.path.join(home, "bin", "step.exe")
-    elif system in ("Linux", "Darwin"):
-        return os.path.join(home, "bin", "step")
-    else:
-        raise OSError(f"Unsupported platform: {system}")
-
-
-STEP_BIN = get_step_binary_path()
 # Default style to use for questionary
 DEFAULT_QY_STYLE = qy.Style(
     [
@@ -39,3 +25,19 @@ DEFAULT_QY_STYLE = qy.Style(
         ("answer", "fg:#F08A5D"),
     ]
 )
+SCRIPT_HOME_DIR = os.path.expanduser("~/.step-cli-tools")
+
+
+def get_step_binary_path() -> str:
+    """Return absolute path to step-cli binary depending on OS."""
+    bin_dir = os.path.join(SCRIPT_HOME_DIR, "bin")
+    system = platform.system()
+    if system == "Windows":
+        return os.path.join(bin_dir, "step.exe")
+    elif system in ("Linux", "Darwin"):
+        return os.path.join(bin_dir, "step")
+    else:
+        raise OSError(f"Unsupported platform: {system}")
+
+
+STEP_BIN = get_step_binary_path()
