@@ -29,7 +29,15 @@ SCRIPT_HOME_DIR = os.path.expanduser("~/.step-cli-tools")
 
 
 def get_step_binary_path() -> str:
-    """Return absolute path to step-cli binary depending on OS."""
+    """
+    Get the absolute path to the step-cli binary based on the operating system.
+
+    Returns:
+        str: Absolute path to the step binary.
+
+    Raises:
+        OSError: If the operating system is not supported.
+    """
     bin_dir = os.path.join(SCRIPT_HOME_DIR, "bin")
     system = platform.system()
     if system == "Windows":

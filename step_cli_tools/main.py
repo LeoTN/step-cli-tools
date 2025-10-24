@@ -21,7 +21,13 @@ from .operations import *
 # --- Main function ---
 
 
-def main():
+def main() -> None:
+    """
+    Entry point for the Step CLI Tools application.
+
+    Returns:
+        None
+    """
     pkg_name = "step-cli-tools"
     profile_url = "https://github.com/LeoTN"
     try:
@@ -63,6 +69,7 @@ def main():
     console.print(f"{logo}")
     console.print(version_text)
 
+    # Ensure Step CLI is installed
     if not os.path.exists(STEP_BIN):
         answer = qy.confirm(
             "Step CLI not found. Do you want to install it now?",
@@ -75,6 +82,7 @@ def main():
             console.print("[INFO] Exiting program.")
             sys.exit(0)
 
+    # Define operations and their corresponding functions
     operation_switch = {
         "Install root CA on the system": operation1,
         "Uninstall root CA from the system (Windows & Linux)": operation2,
@@ -83,6 +91,7 @@ def main():
         None: sys.exit,
     }
 
+    # Interactive menu loop
     while True:
         console.print()
         operation = show_operations(operation_switch)

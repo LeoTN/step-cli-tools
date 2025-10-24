@@ -38,7 +38,7 @@ __all__ = [
 
 
 def ask_boolean_question(prompt_text: str) -> bool:
-    """Ask a yes/no question and return a boolean."""
+    """Prompt the user with a yes/no question and return a boolean response."""
     while True:
         response = input(f"{prompt_text} (y/n): ").strip().lower()
         if response == "y":
@@ -54,25 +54,30 @@ def ask_boolean_question(prompt_text: str) -> bool:
 def check_for_update(
     current_version: str, include_prerelease: bool = False
 ) -> str | None:
-    """Check PyPI for updates (cached for 24h by default). Optionally include pre-releases. Return latest version string or None."""
+    """Check PyPI for newer releases of the package.
+
+    Args:
+        current_version: Current version string of the package.
+        include_prerelease: Whether to consider pre-release versions.
+
+    Returns:
+        The latest version string if a newer version exists, otherwise None.
+    """
     pkg = "step-cli-tools"
     cache = Path.home() / f".{pkg}" / ".cache" / "update_check.json"
-    # Make sure the directory exists
     cache.parent.mkdir(parents=True, exist_ok=True)
     now = time.time()
 
-    # Use cache if less than 24h (by default) old
     if cache.exists():
         try:
             data = json.loads(cache.read_text())
             latest_version = data.get("latest_version")
-            chace_lifetime = int(
+            cache_lifetime = int(
                 config.get("update_config.check_for_updates_cache_lifetime_seconds")
             )
-            # Return cached version if still valid
             if (
                 latest_version
-                and now - data.get("time", 0) < chace_lifetime
+                and now - data.get("time", 0) < cache_lifetime
                 and version.parse(latest_version) > version.parse(current_version)
             ):
                 return latest_version
@@ -84,14 +89,13 @@ def check_for_update(
             f"https://pypi.org/pypi/{pkg}/json", timeout=5
         ) as r:
             data = json.load(r)
-            # Skip empty or invalid releases
             releases = [r for r, files in data["releases"].items() if files]
 
         if not include_prerelease:
             releases = [r for r in releases if not version.parse(r).is_prerelease]
 
         if not releases:
-            return
+            return None
 
         latest_version = max(releases, key=version.parse)
         cache.write_text(json.dumps({"time": now, "latest_version": latest_version}))
@@ -100,11 +104,11 @@ def check_for_update(
             return latest_version
 
     except Exception:
-        return
+        return None
 
 
 def install_step_cli(step_bin: str):
-    """Download and install step-cli to the given path."""
+    """Download and install the step CLI binary for the current platform."""
     system = platform.system()
     arch = platform.machine()
     console.print(f"[INFO] Detected platform: {system} {arch}")
@@ -159,7 +163,16 @@ def install_step_cli(step_bin: str):
 
 
 def execute_step_command(args, step_bin: str, interactive: bool = False):
-    """Execute a step CLI command at the given binary path."""
+    """Execute a step CLI command and return output or log errors.
+
+    Args:
+        args: List of command arguments to pass to step CLI.
+        step_bin: Path to the step binary.
+        interactive: If True, run the command interactively without capturing output.
+
+    Returns:
+        Command output as a string if successful, otherwise None.
+    """
     if not step_bin or not os.path.exists(step_bin):
         console.print(
             "[ERROR] step CLI not found. Please install it first.", style="#B83B5E"
@@ -191,26 +204,19 @@ def execute_step_command(args, step_bin: str, interactive: bool = False):
 
 
 def check_ca_health(ca_url: str, trust_unknown_default: bool = False) -> bool:
-    """
-    Check the health endpoint of a CA server.
-
-    Performs an SSL-verified request first. If that fails due to an
-    untrusted certificate, it optionally retries with an unverified
-    SSL context.
+    """Check the health endpoint of a CA server via HTTPS.
 
     Args:
-        ca_url: The HTTPS URL to the CA health endpoint (e.g. "https://ca.local:9000/health").
-        trust_unknown_default: Whether to skip SSL verification immediately (from config).
+        ca_url: URL to the CA health endpoint.
+        trust_unknown_default: Skip SSL verification immediately if True.
 
     Returns:
-        bool: True if the CA is healthy ("ok"), otherwise False.
+        True if CA responds "ok", False otherwise.
     """
 
     def do_request(context):
-        """Helper to perform the HTTPS request and parse the response."""
         with urllib.request.urlopen(ca_url, context=context, timeout=10) as r:
-            output = r.read().decode("utf-8").strip()
-            return "ok" in output.lower()
+            return "ok" in r.read().decode("utf-8").strip().lower()
 
     # Select SSL context
     context = (
@@ -242,10 +248,6 @@ def check_ca_health(ca_url: str, trust_unknown_default: bool = False) -> bool:
             if not answer:
                 console.print("[INFO] Operation cancelled by user.")
                 return False
-
-            console.print(
-                "[INFO] Retrying health check with unverified SSL context ..."
-            )
             try:
                 if do_request(ssl._create_unverified_context()):
                     console.print(f"[INFO] CA at {ca_url} is healthy.", style="green")
@@ -258,7 +260,6 @@ def check_ca_health(ca_url: str, trust_unknown_default: bool = False) -> bool:
                 console.print(f"[ERROR] Retry failed: {e2}", style="#B83B5E")
                 return False
 
-        # Handle other URL/connection errors
         console.print(
             f"[ERROR] Connection failed: {e}\n\nIs the port correct and the server available?",
             style="#B83B5E",
@@ -271,6 +272,11 @@ def check_ca_health(ca_url: str, trust_unknown_default: bool = False) -> bool:
 
 
 def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
+    """Search Windows user ROOT store for a certificate by SHA-256 fingerprint.
+
+    Returns:
+        Tuple of (thumbprint, subject) if found, else None.
+    """
     ps_cmd = r"""
     $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "Root","CurrentUser"
     $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
@@ -305,6 +311,11 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
 
 
 def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
+    """Search Linux trust store for a certificate by SHA-256 fingerprint.
+
+    Returns:
+        Tuple of (path, subject) if found, else None.
+    """
     cert_dir = "/etc/ssl/certs"
     fingerprint = sha256_fingerprint.lower().replace(":", "")
 

@@ -21,13 +21,15 @@ __all__ = [
 
 
 def show_operations(switch: dict[str | None, object]) -> str | None:
-    """Display available operations and let the user select one interactively.
+    """
+    Display available operations and let the user select one interactively.
 
     Args:
-        switch: Dictionary mapping option names (or None) to functions.
+        switch (dict[str | None, object]): Dictionary mapping option names
+            (or None) to their corresponding functions.
 
     Returns:
-        The selected option name (str) or None if canceled.
+        str | None: The selected option name, or None if canceled.
     """
     # Filter out None from the displayed options
     options = [opt for opt in switch.keys() if opt is not None]
@@ -45,8 +47,15 @@ def show_operations(switch: dict[str | None, object]) -> str | None:
 
 
 def operation1() -> None:
-    """Performs the CA bootstrap operation with prior health check."""
+    """
+    Perform the CA bootstrap operation.
 
+    Prompts the user for the CA server and fingerprint, then executes
+    the step-ca bootstrap command.
+
+    Returns:
+        None
+    """
     warning_text = (
         "You are about to install a root CA on your system.\n"
         "This may pose a potential security risk to your device.\n"
@@ -88,11 +97,10 @@ def operation1() -> None:
         style=DEFAULT_QY_STYLE,
         validate=SHA256Validator,
     ).ask()
-
+    # Check for empty input
     if not fingerprint or not fingerprint.strip():
         console.print("[INFO] Operation cancelled by user.")
         return
-
     fingerprint = fingerprint.replace(":", "")
 
     # Run step-ca bootstrap
@@ -111,8 +119,15 @@ def operation1() -> None:
 
 
 def operation2() -> None:
-    """Uninstall a root CA certificate from the system trust store using its SHA-256 fingerprint."""
+    """
+    Uninstall a root CA certificate from the system trust store.
 
+    Prompts the user for the certificate fingerprint and removes it from
+    the appropriate trust store based on the platform.
+
+    Returns:
+        None
+    """
     warning_text = (
         "You are about to remove a root CA certificate from your system.\n"
         "This is a sensitive operation and can affect system security.\n"
@@ -127,7 +142,7 @@ def operation2() -> None:
         validate=SHA256Validator,
     ).ask()
     # Check for empty input
-    if (fingerprint is None) or (fingerprint.strip() == ""):
+    if not fingerprint or not fingerprint.strip():
         console.print("[INFO] Operation cancelled by user.")
         return
     fingerprint = fingerprint.replace(":", "")
