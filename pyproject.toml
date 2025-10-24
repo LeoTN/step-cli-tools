@@ -25,6 +25,7 @@ python = ">=3.10,<4.0"
 cryptography = ">=46.0.2"
 rich = ">=14.2.0"
 questionary = "^2.1.1"
+ruamel-yaml = "^0.18.16"
 
 [tool.poetry.scripts]
 step-cli-tools = "step_cli_tools.main:main"

@@ -3,10 +3,12 @@ import json
 import os
 import platform
 import shutil
+import ssl
 import subprocess
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.request import urlopen
@@ -29,6 +31,7 @@ __all__ = [
     "check_for_update",
     "install_step_cli",
     "execute_step_command",
+    "check_ca_health",
     "find_windows_cert_by_sha256",
     "find_linux_cert_by_sha256",
 ]
@@ -185,6 +188,86 @@ def execute_step_command(args, step_bin: str, interactive: bool = False):
     except Exception as e:
         console.print(f"[ERROR] Failed to execute step command: {e}", style="#B83B5E")
         return None
+
+
+def check_ca_health(ca_url: str, trust_unknown_default: bool = False) -> bool:
+    """
+    Check the health endpoint of a CA server.
+
+    Performs an SSL-verified request first. If that fails due to an
+    untrusted certificate, it optionally retries with an unverified
+    SSL context.
+
+    Args:
+        ca_url: The HTTPS URL to the CA health endpoint (e.g. "https://ca.local:9000/health").
+        trust_unknown_default: Whether to skip SSL verification immediately (from config).
+
+    Returns:
+        bool: True if the CA is healthy ("ok"), otherwise False.
+    """
+
+    def do_request(context):
+        """Helper to perform the HTTPS request and parse the response."""
+        with urllib.request.urlopen(ca_url, context=context, timeout=10) as r:
+            output = r.read().decode("utf-8").strip()
+            return "ok" in output.lower()
+
+    # Select SSL context
+    context = (
+        ssl._create_unverified_context()
+        if trust_unknown_default
+        else ssl.create_default_context()
+    )
+
+    try:
+        if do_request(context):
+            console.print(f"[INFO] CA at {ca_url} is healthy.", style="green")
+            return True
+        console.print(f"[ERROR] CA health check failed for {ca_url}.", style="#B83B5E")
+        return False
+
+    except urllib.error.URLError as e:
+        reason = getattr(e, "reason", None)
+        # Handle SSL certificate errors
+        if isinstance(reason, ssl.SSLCertVerificationError):
+            console.print(
+                "[WARNING] Server provided an unknown or untrusted certificate.",
+                style="#F9ED69",
+            )
+            answer = qy.confirm(
+                f"Do you really want to trust '{ca_url}'?",
+                style=DEFAULT_QY_STYLE,
+                default=False,
+            ).ask()
+            if not answer:
+                console.print("[INFO] Operation cancelled by user.")
+                return False
+
+            console.print(
+                "[INFO] Retrying health check with unverified SSL context ..."
+            )
+            try:
+                if do_request(ssl._create_unverified_context()):
+                    console.print(f"[INFO] CA at {ca_url} is healthy.", style="green")
+                    return True
+                console.print(
+                    f"[ERROR] CA health check failed for {ca_url}.", style="#B83B5E"
+                )
+                return False
+            except Exception as e2:
+                console.print(f"[ERROR] Retry failed: {e2}", style="#B83B5E")
+                return False
+
+        # Handle other URL/connection errors
+        console.print(
+            f"[ERROR] Connection failed: {e}\n\nIs the port correct and the server available?",
+            style="#B83B5E",
+        )
+        return False
+
+    except Exception as e:
+        console.print(f"[ERROR] CA health check failed: {e}", style="#B83B5E")
+        return False
 
 
 def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:

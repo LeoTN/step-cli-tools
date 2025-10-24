@@ -1,9 +1,7 @@
 # --- Standard library imports ---
 import os
 import platform
-import ssl
 import subprocess
-import urllib.request
 
 # --- Third-party imports ---
 from rich.panel import Panel
@@ -46,7 +44,9 @@ def show_operations(switch: dict[str | None, object]) -> str | None:
     return choice
 
 
-def operation1():
+def operation1() -> None:
+    """Performs the CA bootstrap operation with prior health check."""
+
     warning_text = (
         "You are about to install a root CA on your system.\n"
         "This may pose a potential security risk to your device.\n"
@@ -54,7 +54,7 @@ def operation1():
     )
     console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
-    # Ask for CA server hostname/IP and optional port
+    # Ask for CA hostname/IP and port
     default = config.get("ca_server_config.default_ca_server")
     ca_input = qy.text(
         "Enter the step CA server hostname or IP (optionally with :port)",
@@ -62,56 +62,40 @@ def operation1():
         style=DEFAULT_QY_STYLE,
         validate=HostnamePortValidator,
     ).ask()
-    # Check for empty input
-    if (ca_input is None) or (ca_input.strip() == ""):
+
+    if not ca_input or not ca_input.strip():
         console.print("[INFO] Operation cancelled by user.")
         return
 
-    # Split host and port
-    if ":" in ca_input:
-        ca_server, port_str = ca_input.rsplit(":", 1)
-        port = int(port_str)
-    else:
-        ca_server = ca_input
-        # Default port for step-ca
-        port = 9000
-
-    # Check CA health endpoint
+    # Parse host and port
+    ca_server, _, port_str = ca_input.partition(":")
+    port = int(port_str) if port_str else 9000
     ca_url = f"https://{ca_server}:{port}/health"
+
     console.print(f"[INFO] Checking CA health at {ca_url} ...")
-    try:
-        # Ignore SSL verification in case the root ca is not yet trusted
-        context = ssl._create_unverified_context()
-        with urllib.request.urlopen(ca_url, context=context, timeout=10) as response:
-            output = response.read().decode("utf-8").strip()
-            if "ok" in output.lower():
-                console.print(f"[INFO] CA at {ca_url} is healthy.", style="green")
-            else:
-                console.print(
-                    f"[ERROR] CA health check failed for {ca_url}. Is the port correct and the server available?",
-                    style="#B83B5E",
-                )
-                return
-    except Exception as e:
-        console.print(
-            f"[ERROR] CA health check failed: {e}\n\nIs the port correct and the server available?",
-            style="#B83B5E",
-        )
+
+    # Run the health check via helper
+    trust_unknown_default = config.get(
+        "ca_server_config.trust_unknow_ca_servers_by_default"
+    )
+    if not check_ca_health(ca_url, trust_unknown_default):
+        # Either failed or user cancelled
         return
 
-    # Ask for fingerprint of the root certificate
+    # Ask for fingerprint
     fingerprint = qy.text(
         "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
         style=DEFAULT_QY_STYLE,
         validate=SHA256Validator,
     ).ask()
-    # Check for empty input
-    if (fingerprint is None) or (fingerprint.strip() == ""):
+
+    if not fingerprint or not fingerprint.strip():
         console.print("[INFO] Operation cancelled by user.")
         return
+
     fingerprint = fingerprint.replace(":", "")
 
-    # Build the ca bootstrap command
+    # Run step-ca bootstrap
     bootstrap_args = [
         "ca",
         "bootstrap",
@@ -126,7 +110,7 @@ def operation1():
     execute_step_command(bootstrap_args, STEP_BIN, interactive=True)
 
 
-def operation2():
+def operation2() -> None:
     """Uninstall a root CA certificate from the system trust store using its SHA-256 fingerprint."""
 
     warning_text = (

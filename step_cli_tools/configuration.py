@@ -30,13 +30,12 @@ yaml.preserve_quotes = True
 class Configuration:
     def __init__(self, file_location: str, schema: dict, autosave: bool = True):
         """
-        Manage persistent user settings in a YAML file with typed schema and comment support.
-        Note, that the load() method MUST be called manually once.
+        Initialize Configuration object. Note, that the load() method MUST be called manually once.
 
         Args:
-            file_location: Absoulte path to the config file
-            schema: Settings schema defining 'type', 'default', and optional 'validator' and 'comment'.
-            autosave: If True, automatically save after each set() call.
+            file_location: Absolute path to the YAML config file.
+            schema: Dictionary defining the config schema with types, defaults, validators, and comments.
+            autosave: Automatically save after each set() call if True.
         """
         self.file_location = Path(file_location)
         self.file_location.parent.mkdir(parents=True, exist_ok=True)
@@ -45,8 +44,8 @@ class Configuration:
         self._data = CommentedMap()
 
     # --- File and public API handling ---
-    def load(self):
-        """Load YAML and merge defaults, building CommentedMap with comments."""
+    def load(self) -> None:
+        """Load YAML config and merge defaults into a CommentedMap with comments."""
         if self.file_location.exists():
             try:
                 loaded = yaml.load(self.file_location.read_text()) or {}
@@ -58,8 +57,8 @@ class Configuration:
 
         self._data = self._build_commented_data(self.schema, loaded)
 
-    def save(self):
-        """Save current configuration to YAML file."""
+    def save(self) -> None:
+        """Save current configuration data to YAML file."""
         try:
             with self.file_location.open("w", encoding="utf-8") as f:
                 yaml.dump(self._data, f)
@@ -70,16 +69,10 @@ class Configuration:
             )
 
     def reset(self) -> bool:
-        """
-        Reset the configuration file to default values.
-
-        Steps:
-          1. If a configuration file exists, create a timestamped backup in the same directory.
-          2. Rebuild a fresh configuration from schema defaults.
-          3. Save and reload the new configuration.
+        """Reset configuration to schema defaults and create a backup of existing file.
 
         Returns:
-            bool: True if reset succeeded, False otherwise.
+            True if reset succeeded, False otherwise.
         """
         try:
             if self.file_location.exists():
@@ -90,10 +83,7 @@ class Configuration:
                 shutil.copy2(self.file_location, backup_path)
                 console.print(f"[INFO] Created backup: {backup_path}")
 
-            # Rebuild fresh data structure from schema defaults
             self._data = self._build_commented_data(self.schema)
-
-            # Save new clean config
             self.save()
             self.load()
 
@@ -110,19 +100,43 @@ class Configuration:
             return False
 
     def get(self, key: str):
-        """Retrieve a setting value using a dotted key path, falls back to default."""
+        """Retrieve a setting value using dotted key path; fallback to default if missing.
+
+        Args:
+            key: Dotted path to the setting (e.g., "network.timeout").
+
+        Returns:
+            The current value or the schema default if missing.
+        """
         parts = key.split(".")
         data = self._data
         for part in parts:
             if not isinstance(data, dict) or part not in data:
+                console.print(
+                    f"[WARNING] Failed to extract the value for '{key}' from the configuration file.",
+                    style="#F9ED69",
+                )
                 return self._nested_get_default(parts)
             data = data[part]
         return data
 
-    def set(self, key: str, value):
-        """Set a setting value using a dotted key path, cast to schema type if needed."""
+    def set(self, key: str, value) -> None:
+        """Set a value using a dotted key path, cast to schema type if needed.
+
+        Args:
+            key: Dotted path to the setting.
+            value: Value to set.
+        """
         parts = key.split(".")
         data = self._data
+
+        # Check if key exists in schema
+        schema_meta = self._nested_get_meta(parts)
+        if not schema_meta:
+            console.print(
+                f"[WARNING] Key '{key}' does not exist in the config schema. Value '{value}' will still be set.",
+                style="#F9ED69",
+            )
 
         # Navigate or create nested dictionaries
         for part in parts[:-1]:
@@ -142,29 +156,26 @@ class Configuration:
                 )
 
         data[parts[-1]] = value
+
+        if self.autosave:
+            self.save()
+
+    def repair(self) -> None:
+        """Restore missing keys and values from the schema and optionally autosave."""
+        self._data = self._build_commented_data(
+            self.schema, self._data, repair_damaged_keys=True
+        )
         if self.autosave:
             self.save()
 
     def validate(self, key: str | None = None) -> bool:
-        """
-        Validate settings against their schema validators.
-
-        If a key is provided, only that single setting (using dotted notation)
-        will be validated. If no key is given, the entire configuration is checked
-        recursively against all validators defined in the schema.
-
-        The validator for each key is taken from the schema entry under "validator".
-        Validators can either:
-          • Return None → value is valid
-          • Return a string → value is invalid (string describes the error)
-          • Raise an Exception → considered invalid
+        """Validate settings against schema validators.
 
         Args:
-            key: Optional dotted key path (e.g. "update_settings.retry_count")
-                 to validate only that specific entry.
+            key: Optional dotted key path to validate only that entry.
 
         Returns:
-            bool: True if all checked values are valid, False otherwise.
+            True if all checked values are valid, False otherwise.
         """
         if key:
             parts = key.split(".")
@@ -212,20 +223,19 @@ class Configuration:
             )
             return False
 
-        # No specific key → validate full schema recursively
+        # No specific key -> validate full schema recursively
         return self._validate_recursive(self._data, self.schema, prefix="")
 
     # --- Internal helpers ---
     def _wrap_validator(self, meta, validator):
-        """
-        Wrap known validators with parameters from schema if needed.
+        """Wrap validator with schema params if needed.
 
         Args:
-            meta: The schema metadata dict for the key.
-            validator: The original validator function.
+            meta: Schema metadata for the key.
+            validator: Original validator function.
 
         Returns:
-            A callable validator, possibly wrapped with schema params.
+            Callable validator with parameters applied if applicable.
         """
         if callable(validator):
             if validator is int_range_validator and "min" in meta and "max" in meta:
@@ -235,28 +245,15 @@ class Configuration:
         return validator
 
     def _validate_recursive(self, data: dict, schema: dict, prefix: str) -> bool:
-        """
-        Recursively validate all settings against their schema definitions.
-
-        This method walks through the nested schema structure, retrieves each value
-        from the corresponding data dictionary, and applies the configured validator
-        if one exists.
-
-        Rules:
-          • If an entry has no "type", it is treated as a nested schema.
-          • If a validator is defined, it must be callable.
-          • A validator should return:
-              - None → valid
-              - str  → invalid (string contains error message)
-              - raise Exception → invalid
+        """Recursively validate all settings against schema.
 
         Args:
-            data: The current level of the settings data being validated.
-            schema: The schema dict defining expected structure and validators.
-            prefix: Dotted prefix path used for nested key names.
+            data: Current level of config data.
+            schema: Schema dict for this level.
+            prefix: Dotted path prefix for nested keys.
 
         Returns:
-            bool: True if all values at this level (and below) are valid, False otherwise.
+            True if all values valid, False otherwise.
         """
         ok = True
         for k, meta in schema.items():
@@ -316,6 +313,7 @@ class Configuration:
         return ok
 
     def _nested_get_meta(self, keys: list[str]) -> dict | None:
+        """Retrieve schema metadata for nested key path."""
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
@@ -324,6 +322,7 @@ class Configuration:
         return data if isinstance(data, dict) else None
 
     def _nested_get_default(self, keys: list[str]):
+        """Retrieve default value from schema for nested key path."""
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
@@ -338,6 +337,7 @@ class Configuration:
         return None
 
     def _nested_get_type(self, keys: list[str]):
+        """Retrieve expected type from schema for nested key path."""
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
@@ -351,23 +351,47 @@ class Configuration:
         data: dict | None = None,
         indent: int = 0,
         top_level: bool = True,
+        repair_damaged_keys=False,
     ) -> CommentedMap:
+        """Construct a CommentedMap with schema defaults and YAML comments.
+
+        Args:
+            schema: Schema defining keys, types, defaults, validators, and comments.
+            data: Optional existing config data to merge.
+            indent: Indentation level for YAML comments.
+            top_level: True if building top-level mapping.
+            repair_damaged_keys: Restore missing keys from schema if True.
+
+        Returns:
+            CommentedMap populated with data and comments.
+        """
         data = data or {}
         node = CommentedMap()
 
         for i, (key, meta) in enumerate(schema.items()):
-            if isinstance(key, str) and key.startswith("_"):
-                continue
             if not isinstance(meta, dict):
                 continue
 
             if "type" not in meta:
                 child_node = self._build_commented_data(
-                    meta, data.get(key, {}), indent + 2, top_level=False
+                    meta,
+                    data.get(key, {}),
+                    indent + 2,
+                    top_level=False,
+                    repair_damaged_keys=repair_damaged_keys,
                 )
                 node[key] = child_node
             else:
-                node[key] = data.get(key, meta.get("default"))
+                node[key] = data.get(key)
+                # The data could not be extracted from the config file
+                if node[key] is None:
+                    if repair_damaged_keys:
+                        console.print(
+                            f"[INFO] Repairing key '{key}' from config schema."
+                        )
+                        node[key] = meta.get("default")
+                    else:
+                        continue
 
                 type_obj = meta.get("type")
                 type_name = type_obj.__name__ if type_obj else "unknown"
@@ -415,17 +439,16 @@ class Configuration:
 
 
 def check_and_repair_config_file() -> None:
-    """
-    Ensure the config file exists and is valid.
-    If invalid, allow the user to edit or reset.
-    """
-    # Generate default if missing
-    if not os.path.exists(config_file_location):
+    """Ensure the config file exists and is valid. Allow repair/edit/reset if invalid."""
+
+    # Generate default config if missing
+    if not os.path.exists(config.file_location):
         config.load()
         config.save()
         console.print("[INFO] A default config file has been generated.")
 
-    # Validation / repair loop
+    automatic_repair_failed = False
+
     while True:
         try:
             config.load()
@@ -437,8 +460,15 @@ def check_and_repair_config_file() -> None:
             is_valid = False
 
         if is_valid:
-            break
+            break  # valid -> exit
 
+        if not automatic_repair_failed:
+            console.print("[INFO] Attempting automatic config file repair...")
+            config.repair()
+            automatic_repair_failed = True
+            continue  # nochmal prüfen
+
+        # In case the automatic repair fails
         choice = qy.select(
             "Choose an action:",
             choices=["Edit config file", "Reset config file"],
@@ -446,7 +476,7 @@ def check_and_repair_config_file() -> None:
         ).ask()
 
         if choice == "Edit config file":
-            let_user_change_config_file(True)
+            let_user_change_config_file(reset_instead_of_discard=True)
         elif choice == "Reset config file":
             config.reset()
         else:
@@ -516,7 +546,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False) -> None:
             is_valid = False
 
         if is_valid:
-            console.print("[INFO] Configuration updated successfully.", style="green")
+            console.print("[INFO] Configuration saved successfully.", style="green")
             break  # exit loop if valid
 
         # If validation failed
@@ -651,7 +681,7 @@ config_schema = {
             "type": bool,
             "default": False,
             "validator": bool_validator,
-            "comment": "If enabled, any ca server providing an unknown self signed certificate will be trusted by default. (NO_EFFECT_YET)",
+            "comment": "If enabled, any ca server providing an unknown self-signed certificate will be trusted by default",
         },
     },
 }
