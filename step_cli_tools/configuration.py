@@ -68,36 +68,52 @@ class Configuration:
                 style="#B83B5E",
             )
 
-    def reset(self) -> bool:
-        """Reset configuration to schema defaults and create a backup of existing file.
+    def generate_default(self, overwrite: bool = False) -> None:
+        """
+        Generate a default configuration file from the schema.
 
-        Returns:
-            True if reset succeeded, False otherwise.
+        Args:
+            overwrite: If True, existing file will be replaced. Otherwise, existing file will be kept.
         """
         try:
-            if self.file_location.exists():
+            if self.file_location.exists() and not overwrite:
+                console.print(
+                    f"[WARNING] Config file already exists: {self.file_location}. Use overwrite=True to replace it.",
+                    style="#F9ED69",
+                )
+                return
+
+            # Backup existing file before overwriting
+            if self.file_location.exists() and overwrite:
                 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 backup_path = self.file_location.with_name(
                     f"{self.file_location.stem}_backup_{timestamp}{self.file_location.suffix}"
                 )
                 shutil.copy2(self.file_location, backup_path)
-                console.print(f"[INFO] Created backup: {backup_path}")
+                console.print(f"[INFO] Created backup before overwrite: {backup_path}")
 
-            self._data = self._build_commented_data(self.schema)
-            self.save()
-            self.load()
+            # This is a bit akward but the file is technically repaired without keeping any data.
+            default_data = self._build_commented_data(
+                self.schema, repair_damaged_keys=True, suppress_repair_messages=True
+            )
+
+            # Save YAML file
+            with self.file_location.open("w", encoding="utf-8") as f:
+                yaml.dump(default_data, f)
 
             console.print(
-                f"[INFO] Configuration reset successfully: {self.file_location}",
+                f"[INFO] Default configuration file generated successfully at: {self.file_location}",
                 style="green",
             )
-            return True
+
+            # Load the data into memory so it's ready for use
+            self._data = default_data
 
         except Exception as e:
             console.print(
-                f"[ERROR] Failed to reset configuration: {e}", style="#B83B5E"
+                f"[ERROR] Failed to generate default configuration: {e}",
+                style="#B83B5E",
             )
-            return False
 
     def get(self, key: str):
         """Retrieve a setting value using dotted key path; fallback to default if missing.
@@ -352,6 +368,7 @@ class Configuration:
         indent: int = 0,
         top_level: bool = True,
         repair_damaged_keys=False,
+        suppress_repair_messages=False,
     ) -> CommentedMap:
         """Construct a CommentedMap with schema defaults and YAML comments.
 
@@ -361,6 +378,7 @@ class Configuration:
             indent: Indentation level for YAML comments.
             top_level: True if building top-level mapping.
             repair_damaged_keys: Restore missing keys from schema if True.
+            suppress_repair_messages: Suppress log messages from repairing keys if True.
 
         Returns:
             CommentedMap populated with data and comments.
@@ -379,6 +397,7 @@ class Configuration:
                     indent + 2,
                     top_level=False,
                     repair_damaged_keys=repair_damaged_keys,
+                    suppress_repair_messages=suppress_repair_messages,
                 )
                 node[key] = child_node
             else:
@@ -386,9 +405,10 @@ class Configuration:
                 # The data could not be extracted from the config file
                 if node[key] is None:
                     if repair_damaged_keys:
-                        console.print(
-                            f"[INFO] Repairing key '{key}' from config schema."
-                        )
+                        if not suppress_repair_messages:
+                            console.print(
+                                f"[INFO] Repairing key '{key}' from config schema."
+                            )
                         node[key] = meta.get("default")
                     else:
                         continue
@@ -443,8 +463,7 @@ def check_and_repair_config_file() -> None:
 
     # Generate default config if missing
     if not os.path.exists(config.file_location):
-        config.load()
-        config.save()
+        config.generate_default()
         console.print("[INFO] A default config file has been generated.")
 
     automatic_repair_failed = False
@@ -478,7 +497,7 @@ def check_and_repair_config_file() -> None:
         if choice == "Edit config file":
             let_user_change_config_file(reset_instead_of_discard=True)
         elif choice == "Reset config file":
-            config.reset()
+            config.generate_default(overwrite=True)
         else:
             sys.exit(1)
 
@@ -488,7 +507,7 @@ def show_config_operations() -> None:
     config_operation_switch = {
         "Open": let_user_change_config_file,
         "Validate": validate_with_feedback,
-        "Reset": config.reset,
+        "Reset": lambda: config.generate_default(overwrite=True),
         "Exit": lambda: None,  # no-op for exit
     }
     options = list(config_operation_switch.keys())
@@ -561,7 +580,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False) -> None:
         ).ask()
 
         if choice == "Reset config file":
-            config.reset()
+            config.generate_default(overwrite=True)
             return
 
         if choice == "Discard changes":
@@ -635,7 +654,7 @@ def validate_with_feedback():
 
 
 def reset_with_feedback():
-    result = config.reset()
+    result = config.generate_default(overwrite=True)
     if result is True:
         console.print("[INFO] Configuration successfully reset.", style="green")
     else:
@@ -688,5 +707,3 @@ config_schema = {
 
 # This object will be used to manipulate the config file
 config = Configuration(config_file_location, schema=config_schema)
-check_and_repair_config_file()
-config.load()

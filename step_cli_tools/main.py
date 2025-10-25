@@ -32,6 +32,10 @@ def main() -> None:
     except PackageNotFoundError:
         pkg_version = "development"
 
+    # Verify and load the config file
+    check_and_repair_config_file()
+    config.load()
+
     # Check for updates and display version info
     if config.get("update_config.check_for_updates_at_launch"):
         include_prerelease = config.get(
