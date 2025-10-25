@@ -16,6 +16,7 @@ from zipfile import ZipFile
 import warnings
 
 # --- Third-party imports ---
+import certifi
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
@@ -85,8 +86,9 @@ def check_for_update(
             pass
 
     try:
+        context = ssl.create_default_context(cafile=certifi.where())
         with urllib.request.urlopen(
-            f"https://pypi.org/pypi/{pkg}/json", timeout=5
+            f"https://pypi.org/pypi/{pkg}/json", timeout=5, context=context
         ) as r:
             data = json.load(r)
             releases = [r for r, files in data["releases"].items() if files]
@@ -129,7 +131,8 @@ def install_step_cli(step_bin: str):
     tmp_dir = tempfile.mkdtemp()
     tmp_path = os.path.join(tmp_dir, os.path.basename(url))
     console.print(f"[INFO] Downloading step CLI from {url}...")
-    with urlopen(url) as response, open(tmp_path, "wb") as out_file:
+    context = ssl.create_default_context(cafile=certifi.where())
+    with urlopen(url, context=context) as response, open(tmp_path, "wb") as out_file:
         out_file.write(response.read())
 
     console.print(f"[INFO] Extracting {archive_type} archive...")
@@ -222,7 +225,7 @@ def check_ca_health(ca_url: str, trust_unknown_default: bool = False) -> bool:
     context = (
         ssl._create_unverified_context()
         if trust_unknown_default
-        else ssl.create_default_context()
+        else ssl.create_default_context(cafile=certifi.where())
     )
 
     try:

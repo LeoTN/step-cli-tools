@@ -3,9 +3,6 @@ import os
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
-# --- Third-party imports ---
-from rich.panel import Panel
-
 # Allows the script to be run directly and still find the package modules
 if __name__ == "__main__" and __package__ is None:
     parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
