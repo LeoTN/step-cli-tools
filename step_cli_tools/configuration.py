@@ -666,7 +666,7 @@ def reset_with_feedback():
 config_file_location = os.path.join(SCRIPT_HOME_DIR, "config.yml")
 config_schema = {
     "update_config": {
-        "comment": "Settings controlling the search for newer versions",
+        "comment": "Settings for controlling the update check",
         "check_for_updates_at_launch": {
             "type": bool,
             "default": True,
@@ -685,11 +685,11 @@ config_schema = {
             "min": 0,
             "max": 604800,
             "validator": int_range_validator,
-            "comment": "Amount of time which needs to pass before trying to fetch for updates",
+            "comment": "Amount of time which needs to pass before trying to fetch for updates again",
         },
     },
     "ca_server_config": {
-        "comment": "Settings that affect the default ca server",
+        "comment": "Settings that affect the ca server behavior",
         "default_ca_server": {
             "type": str,
             "default": "",
