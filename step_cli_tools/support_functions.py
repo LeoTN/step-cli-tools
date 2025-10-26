@@ -85,10 +85,7 @@ def check_for_update(
             pass
 
     try:
-        context = ssl.create_default_context()
-        with urlopen(
-            f"https://pypi.org/pypi/{pkg}/json", timeout=5, context=context
-        ) as r:
+        with urlopen(f"https://pypi.org/pypi/{pkg}/json", timeout=5) as r:
             data = json.load(r)
             releases = [r for r, files in data["releases"].items() if files]
 
@@ -130,8 +127,7 @@ def install_step_cli(step_bin: str):
     tmp_dir = tempfile.mkdtemp()
     tmp_path = os.path.join(tmp_dir, os.path.basename(url))
     console.print(f"[INFO] Downloading step CLI from {url}...")
-    context = ssl.create_default_context()
-    with urlopen(url, context=context) as response, open(tmp_path, "wb") as out_file:
+    with urlopen(url) as response, open(tmp_path, "wb") as out_file:
         out_file.write(response.read())
 
     console.print(f"[INFO] Extracting {archive_type} archive...")
