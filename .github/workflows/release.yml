@@ -180,7 +180,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ needs.details.outputs.is_beta }}" = "true" ]; then
-              gh release create ${{ needs.details.outputs.tag_name }} dist/* --title ${{ needs.details.outputs.tag_name }} --generate-notes --prerelease
+              gh release create ${{ needs.details.outputs.tag_name }} dist/* --title ${{ needs.details.outputs.tag_name }} --prerelease
           else
               gh release create ${{ needs.details.outputs.tag_name }} dist/* --title ${{ needs.details.outputs.tag_name }} --generate-notes
           fi
