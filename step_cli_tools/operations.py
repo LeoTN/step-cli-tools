@@ -116,7 +116,7 @@ def operation1() -> None:
 
     console.print(f"[INFO] Running step ca bootstrap on {ca_url} ...")
     result = execute_step_command(bootstrap_args, STEP_BIN, interactive=True)
-    if result:
+    if isinstance(result, str):
         console.print(
             "[NOTE] You may need to restart your system for the changes to take full effect."
         )
