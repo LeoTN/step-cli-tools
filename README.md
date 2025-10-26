@@ -8,6 +8,8 @@
 
 This tool aims to **simplify** the use of the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli**.
 
+<img src="assets/operation_page_readme.png" alt="Operation Page" style="width: 70%;">
+
 ## 🚀 Getting Started
 
 **Install / upgrade with pip:**
@@ -24,7 +26,7 @@ sct
 
 | Feature | Description |
 |---------|-------------|
-| 📜 **Manage Root CA Certificates** | Install & uninstall your **root CA certificate** easily on systems |
+| 📜 **Manage Root CA Certificates** | Install & uninstall your **root CA certificate** easily |
 
 ℹ️ More features are planned.
 
