@@ -75,7 +75,7 @@ def main() -> None:
         answer = qy.confirm(
             "Step CLI not found. Do you want to install it now?",
             style=DEFAULT_QY_STYLE,
-            default=False,
+            default=True,
         ).ask()
         if answer:
             install_step_cli(STEP_BIN)

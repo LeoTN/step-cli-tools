@@ -26,7 +26,7 @@ sct
 
 | Feature | Description |
 |---------|-------------|
-| 📜 **Manage Root CA Certificates** | Install & uninstall your **root CA certificate** easily on systems |
+| 📜 **Manage Root CA Certificates** | Install & uninstall your **root CA certificate** easily |
 
 ℹ️ More features are planned.
 

@@ -115,7 +115,11 @@ def operation1() -> None:
     ]
 
     console.print(f"[INFO] Running step ca bootstrap on {ca_url} ...")
-    execute_step_command(bootstrap_args, STEP_BIN, interactive=True)
+    result = execute_step_command(bootstrap_args, STEP_BIN, interactive=True)
+    if result:
+        console.print(
+            "[NOTE] You may need to restart your system for the changes to take full effect."
+        )
 
 
 def operation2() -> None:
@@ -180,6 +184,9 @@ def operation2() -> None:
             console.print(
                 f"[INFO] Certificate with CN '{cn}' removed from Windows ROOT store."
             )
+            console.print(
+                "[NOTE] You may need to restart your system for the changes to take full effect."
+            )
         else:
             console.print(
                 f"[ERROR] Failed to remove certificate: {result.stderr.strip()}",
@@ -220,6 +227,9 @@ def operation2() -> None:
             subprocess.run(["sudo", "update-ca-certificates", "--fresh"], check=True)
             console.print(
                 f"[INFO] Certificate with CN '{cn}' removed from Linux trust store."
+            )
+            console.print(
+                "[NOTE] You may need to restart your system for the changes to take full effect."
             )
         except subprocess.CalledProcessError as e:
             console.print(f"[ERROR] Failed to remove certificate: {e}", style="#B83B5E")

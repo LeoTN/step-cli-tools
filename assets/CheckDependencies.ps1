@@ -13,40 +13,56 @@ if (-not $deptryInstalled) {
     poetry add --group dev deptry
 }
 
-Write-Host "`n[INFO] Running deptry..." -ForegroundColor Cyan
-$deptryOutput = poetry run deptry . | Out-String
+$projectDir = Split-Path($PSScriptRoot) -Parent
+Set-Location -Path $projectDir
 
-# Remove ANSI color codes (they can break regex matching)
-$cleanOutput = $deptryOutput -replace '\x1B\[[0-9;]*[a-zA-Z]', ''
+Write-Host "[INFO] Running deptry (JSON mode)..." -ForegroundColor Cyan
 
-# Write raw output for reference
-Write-Host $cleanOutput
+# Create a temporary file for JSON output
+$tempJsonFile = [System.IO.Path]::GetTempFileName()
+
+# Run deptry with JSON output written to a temp file
+poetry run deptry . --json-output $tempJsonFile
+
+# Ensure file exists and contains content
+if (-not (Test-Path $tempJsonFile)) {
+    Write-Host "[ERROR] Deptry JSON output file not found!" -ForegroundColor Red
+    exit 1
+}
+
+$content = Get-Content $tempJsonFile -Raw
+if ([string]::IsNullOrWhiteSpace($content)) {
+    Write-Host "[ERROR] Deptry JSON output is empty!" -ForegroundColor Red
+    exit 1
+}
+
+# Parse JSON output
+$deptryData = $content | ConvertFrom-Json
 
 # --- Extract issues ---
 $missing = @()
 $unused = @()
 $transitive = @()
 
-foreach ($line in $cleanOutput) {
-    if ($line -match "DEP001\s+'([^']+)'") {
-        $missing += $Matches[1]
-    }
-    elseif ($line -match "DEP002\s+'([^']+)'") {
-        $unused += $Matches[1]
-    }
-    elseif ($line -match "DEP003\s+'([^']+)'") {
-        $transitive += $Matches[1]
+foreach ($item in $deptryData) {
+    $code = $item.error.code
+    $module = $item.module
+    switch ($code) {
+        "DEP001" { $missing += $module }
+        "DEP002" { $unused += $module }
+        "DEP003" { $transitive += $module }
     }
 }
+
+# Clean up temporary file
+Remove-Item $tempJsonFile -ErrorAction SilentlyContinue
 
 # --- Missing dependencies ---
 if ($missing.Count -gt 0) {
     Write-Host "`n[WARNING] Missing dependencies detected:" -ForegroundColor Yellow
     $missing | ForEach-Object { Write-Host " - $_" -ForegroundColor Yellow }
-
     $confirmAdd = Read-Host "`nDo you want to add them automatically with Poetry? (Y/n)"
     if ([string]::IsNullOrWhiteSpace($confirmAdd)) { $confirmAdd = "y" }
-
     if ($confirmAdd -eq "y") {
         foreach ($pkg in $missing) {
             Write-Host "[INFO] Adding package: $pkg" -ForegroundColor Cyan
@@ -65,10 +81,8 @@ else {
 if ($unused.Count -gt 0) {
     Write-Host "`n[WARNING] Unused dependencies detected:" -ForegroundColor Yellow
     $unused | ForEach-Object { Write-Host " - $_" -ForegroundColor Yellow }
-
     $confirmRemove = Read-Host "`nDo you want to remove them automatically with Poetry? (Y/n)"
     if ([string]::IsNullOrWhiteSpace($confirmRemove)) { $confirmRemove = "y" }
-
     if ($confirmRemove -eq "y") {
         foreach ($pkg in $unused) {
             Write-Host "[INFO] Removing unused package: $pkg" -ForegroundColor Cyan
@@ -87,10 +101,8 @@ else {
 if ($transitive.Count -gt 0) {
     Write-Host "`n[INFO] Transitive dependencies detected:" -ForegroundColor Cyan
     $transitive | ForEach-Object { Write-Host " - $_" -ForegroundColor Cyan }
-
     $confirmTrans = Read-Host "`nDo you want to explicitly add these transitive dependencies to your pyproject.toml? (Y/n)"
     if ([string]::IsNullOrWhiteSpace($confirmTrans)) { $confirmTrans = "y" }
-
     if ($confirmTrans -eq "y") {
         foreach ($pkg in $transitive) {
             Write-Host "[INFO] Adding transitive dependency explicitly: $pkg" -ForegroundColor Cyan
