@@ -541,16 +541,19 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False) -> None:
     """
     Open the config file in the user's preferred text editor, validate changes,
     and reload if valid. If invalid, allow the user to discard or retry.
-    """
-    while True:
-        # Backup current config
-        backup_path = config.file_location.with_suffix(".bak")
-        try:
-            shutil.copy(config.file_location, backup_path)
-        except FileNotFoundError:
-            # If no existing config, just create an empty backup
-            backup_path.write_text("")
 
+    Args:
+        reset_instead_of_discard: Replace the option "Discard changes" with "Reset config file" if True
+    """
+
+    # Backup current config
+    backup_path = config.file_location.with_suffix(".bak")
+    try:
+        shutil.copy(config.file_location, backup_path)
+    except FileNotFoundError:
+        # If no existing config, just create an empty backup
+        backup_path.write_text("")
+    while True:
         # Open file in editor
         open_in_editor(config_file_location)
 
