@@ -8,6 +8,8 @@
 
 This tool aims to **simplify** the use of the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli**.
 
+<img src="assets/operation_page_readme.png" alt="Operation Page" style="width: 50%;">
+
 ## 🚀 Getting Started
 
 **Install / upgrade with pip:**
