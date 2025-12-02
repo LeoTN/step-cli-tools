@@ -21,11 +21,11 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
-      beta_version: ${{ steps.set_latest_release_version_id.outputs.FINAL_BETA_VERSION }}
+      beta_version: ${{ steps.set_latest_release_version_id.outputs.final_beta_version }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -78,10 +78,8 @@ jobs:
       - name: Figure out beta release version
         id: set_latest_release_version_id
         run: |
-          CURRENT_VERSION="$LATEST_RELEASE"
-
           # Check if the current version is already a beta
-          if [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)b([0-9]+)$ ]]; then
+          if [[ "$LATEST_RELEASE" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)b([0-9]+)$ ]]; then
             MAJOR="${BASH_REMATCH[1]}"
             MINOR="${BASH_REMATCH[2]}"
             PATCH="${BASH_REMATCH[3]}"
@@ -89,25 +87,25 @@ jobs:
 
             # Increment beta version
             NEXT_BETA=$((BETA + 1))
-            FINAL_BETA_VERSION="${MAJOR}.${MINOR}.${PATCH}b${NEXT_BETA}"
+            final_beta_version="${MAJOR}.${MINOR}.${PATCH}b${NEXT_BETA}"
 
           # If current version is a stable release
-          elif [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          elif [[ "$LATEST_RELEASE" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             MAJOR="${BASH_REMATCH[1]}"
             MINOR="${BASH_REMATCH[2]}"
             PATCH="${BASH_REMATCH[3]}"
 
             # Increment patch and start beta at 0
             PATCH=$((PATCH + 1))
-            FINAL_BETA_VERSION="${MAJOR}.${MINOR}.${PATCH}b0"
+            final_beta_version="${MAJOR}.${MINOR}.${PATCH}b0"
 
           else
-            echo "[ERROR] Could not parse latest release version: $CURRENT_VERSION"
+            echo "[ERROR] Could not parse latest release version: $LATEST_RELEASE"
             exit 1
           fi
 
-          echo "[INFO] New beta version: $FINAL_BETA_VERSION"
-          echo "FINAL_BETA_VERSION=$FINAL_BETA_VERSION" >> $GITHUB_OUTPUT
+          echo "[INFO] New beta version: $final_beta_version"
+          echo "final_beta_version=$final_beta_version" >> $GITHUB_OUTPUT
 
   start_ci_workflow:
     name: Launch release workflow
@@ -117,4 +115,3 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       version: "${{ needs.figure_out_release_version.outputs.beta_version }}"
-    secrets: inherit
