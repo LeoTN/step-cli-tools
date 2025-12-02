@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ inputs.version }}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$ ]]; then
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(b[0-9]+)?$ ]]; then
               echo "Invalid version format: $VERSION"
               echo "Use X.Y.Z or X.Y.ZbN (only normal or beta releases allowed)"
               exit 1
@@ -47,7 +47,7 @@ jobs:
               fi
           fi
 
-  details:
+  gather_details:
     name: Gather release details
     needs: validate_version
     runs-on: ubuntu-latest
@@ -59,7 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Extract tag and details
+      - name: Extract tag and gather_details
         id: release
         run: |
           TAG_NAME="${{ inputs.version }}"
@@ -74,7 +74,7 @@ jobs:
 
   check_pypi:
     name: Check version on PyPI
-    needs: details
+    needs: gather_details
     runs-on: ubuntu-latest
     steps:
       - name: Set up Python
@@ -105,7 +105,7 @@ jobs:
           import sys
           from packaging.version import parse
 
-          new_version = parse("${{ needs.details.outputs.new_version }}")
+          new_version = parse("${{ needs.gather_details.outputs.new_version }}")
           latest_version = parse("$latest_previous_version")
 
           if new_version > latest_version:
@@ -117,7 +117,7 @@ jobs:
 
   build_and_publish:
     name: Build and publish package to PyPI
-    needs: [details, check_pypi]
+    needs: [gather_details, check_pypi]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -134,7 +134,7 @@ jobs:
 
       - name: Set project version with Poetry
         run: |
-          poetry version ${{ needs.details.outputs.new_version }}
+          poetry version ${{ needs.gather_details.outputs.new_version }}
 
       - name: Install dependencies
         run: |
@@ -156,9 +156,47 @@ jobs:
           name: dist
           path: dist/
 
+  delete_old_betas:
+    name: Cleanup old beta tags and releases
+    needs: build_and_publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Delete old beta tags and releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --prune --unshallow --tags
+          latest_tag=$(git describe --tags --abbrev=0)
+          echo "[INFO] Found latest tag: $latest_tag"
+
+          # Check if the tag is a beta release
+          if [[ "$latest_tag" =~ ^.*b[0-9]+$ ]]; then
+            echo "[INFO] Deleting old beta release and tag: $latest_tag"
+              
+            # Delete the old beta release
+            RELEASE_ID=$(gh api -X GET "/repos/${{ github.repository }}/releases" | jq -r ".[] | select(.tag_name==\"$latest_tag\") | .id")
+            if [ -n "$RELEASE_ID" ]; then
+              gh api -X DELETE "/repos/${{ github.repository }}/releases/$RELEASE_ID"
+              echo "[INFO] Deleted release for tag: $latest_tag"
+            else
+              echo "[INFO] No release found for tag: $latest_tag"
+            fi
+
+            # Deletes the old beta tag
+            git tag --delete "$latest_tag"
+            git push --delete origin "$latest_tag"
+            echo "[INFO] Deleted tag: $latest_tag"
+
+          else
+            echo "[INFO] Could not find a beta release and tag to delete."
+          fi
+
   github_release:
     name: Publish GitHub release
-    needs: [details, build_and_publish]
+    needs: [gather_details, delete_old_betas]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -179,50 +217,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ needs.details.outputs.is_beta }}" = "true" ]; then
-              gh release create ${{ needs.details.outputs.tag_name }} dist/* --title ${{ needs.details.outputs.tag_name }} --prerelease
+          if [ "${{ needs.gather_details.outputs.is_beta }}" = "true" ]; then
+              gh release create ${{ needs.gather_details.outputs.tag_name }} dist/* --title ${{ needs.gather_details.outputs.tag_name }} --prerelease
           else
-              gh release create ${{ needs.details.outputs.tag_name }} dist/* --title ${{ needs.details.outputs.tag_name }} --generate-notes
-          fi
-
-  delete_old_betas:
-    name: Cleanup old beta tags and releases
-    needs: [details, build_and_publish, github_release]
-    runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Delete old beta tags and releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git fetch --prune --unshallow --tags
-          latest_tag=$(git describe --tags --abbrev=0)
-          echo "[INFO] Found latest tag: $latest_tag"
-
-          # Check if the tag is a beta release
-          if [[ "$latest_tag" =~ ^v.*b[0-9]+$ ]]; then
-            echo "[INFO] Deleting old beta release and tag: $latest_tag"
-              
-            # Delete the old beta release
-            RELEASE_ID=$(gh api -X GET "/repos/${{ github.repository }}/releases" | jq -r ".[] | select(.tag_name==\"$latest_tag\") | .id")
-            if [ -n "$RELEASE_ID" ]; then
-              gh api -X DELETE "/repos/${{ github.repository }}/releases/$RELEASE_ID"
-              echo "[INFO] Deleted release for tag: $latest_tag"
-            else
-              echo "[INFO] No release found for tag: $latest_tag"
-            fi
-
-            # Deletes the old beta tag
-            git tag --delete "$latest_tag"
-            git push --delete origin "$latest_tag"
-            echo "[INFO] Deleted tag: $latest_tag"
-
-          else
-            echo "[INFO] Could not find a beta release and tag to delete."
+              gh release create ${{ needs.gather_details.outputs.tag_name }} dist/* --title ${{ needs.gather_details.outputs.tag_name }} --generate-notes
           fi
