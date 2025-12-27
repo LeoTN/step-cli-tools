@@ -519,10 +519,10 @@ def show_config_operations():
         console.print()
         operation = qy.select(
             "Config file options:",
-            style=DEFAULT_QY_STYLE,
             choices=options,
             use_search_filter=True,
             use_jk_keys=False,
+            style=DEFAULT_QY_STYLE,
         ).ask()
 
         if operation == "Exit" or operation is None:

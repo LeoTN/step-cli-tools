@@ -249,8 +249,8 @@ def execute_ca_request(
             console.print()
             answer = qy.confirm(
                 f"Do you really want to trust '{url}'?",
-                style=DEFAULT_QY_STYLE,
                 default=False,
+                style=DEFAULT_QY_STYLE,
             ).ask()
 
             if not answer:
@@ -375,7 +375,7 @@ def get_ca_root_info(
 
         return CARootInfo(
             ca_name=ca_name,
-            fingerprint_sha256=fingerprint,
+            fingerprint_sha256=fingerprint.replace(":", ""),
         )
 
     except Exception as e:
@@ -402,18 +402,27 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
     """
 
     ps_cmd = r"""
+    $sha = [System.Security.Cryptography.SHA256]::Create()
     $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "Root","CurrentUser"
     $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
     foreach ($cert in $store.Certificates) {
         $bytes = $cert.RawData
-        $sha256 = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)) -replace "-",""
-        "$sha256;$($cert.Thumbprint);$($cert.Subject)"
+        $hash = [System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-",""
+        [PSCustomObject]@{
+            Sha256 = $hash
+            Thumbprint = $cert.Thumbprint
+            Subject = $cert.Subject
+        } | ConvertTo-Json -Compress
     }
     $store.Close()
     """
 
     result = subprocess.run(
-        ["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True
+        ["powershell", "-NoProfile", "-Command", ps_cmd],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
     if result.returncode != 0:
@@ -425,10 +434,12 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
 
     for line in result.stdout.strip().splitlines():
         try:
-            sha256, thumbprint, subject = line.split(";", 2)
-            if sha256.strip().lower() == sha256_fingerprint.lower():
-                return (thumbprint.strip(), subject.strip())
-        except ValueError:
+            obj = json.loads(line)
+            if obj["Sha256"].strip().lower() == sha256_fingerprint.lower().replace(
+                ":", ""
+            ):
+                return (obj["Thumbprint"].strip(), obj["Subject"].strip())
+        except (ValueError, KeyError, json.JSONDecodeError):
             continue
 
     return None
@@ -451,13 +462,20 @@ def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "Root","CurrentUser"
     $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
     foreach ($cert in $store.Certificates) {
-        "$($cert.Thumbprint);$($cert.Subject)"
+        [PSCustomObject]@{
+            Thumbprint = $cert.Thumbprint
+            Subject = $cert.Subject
+        } | ConvertTo-Json -Compress
     }
     $store.Close()
     """
 
     result = subprocess.run(
-        ["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True
+        ["powershell", "-NoProfile", "-Command", ps_cmd],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
     if result.returncode != 0:
@@ -472,16 +490,20 @@ def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
 
     for line in result.stdout.strip().splitlines():
         try:
-            thumbprint, subject = line.split(";", 1)
+            obj = json.loads(line)
+            thumbprint = obj["Thumbprint"].strip()
+            subject = obj["Subject"].strip()
+
             components = [comp.strip() for comp in subject.split(",")]
             for comp in components:
                 # Delete leading CN=, O=, OU=, etc.
                 match = re.match(r"^(?:CN|O|OU|C|DC)=(.*)$", comp, re.IGNORECASE)
                 value = match.group(1).strip() if match else comp
                 if pattern_re.match(value):
-                    matches.append((thumbprint.strip(), subject.strip()))
-                    break  # Search the next line if a match is found
-        except ValueError:
+                    matches.append((thumbprint, subject))
+                    break  # Search the next certificate if a match is found
+
+        except (ValueError, KeyError, json.JSONDecodeError):
             continue
 
     return matches
@@ -519,9 +541,16 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
                 try:
                     with open(path, "rb") as f:
                         cert_data = f.read()
-                        cert = x509.load_pem_x509_certificate(
-                            cert_data, default_backend()
-                        )
+                        try:
+                            # Try PEM first
+                            cert = x509.load_pem_x509_certificate(
+                                cert_data, default_backend()
+                            )
+                        except ValueError:
+                            # Fallback to DER
+                            cert = x509.load_der_x509_certificate(
+                                cert_data, default_backend()
+                            )
                         fp = cert.fingerprint(hashes.SHA256()).hex()
                         if fp.lower() == fingerprint:
                             return (path, cert.subject.rfc4514_string())
@@ -536,6 +565,7 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     Search Linux trust store for certificates by name.
     Supports simple wildcard '*' and matches separately against
     each component like CN=..., OU=..., O=..., C=..., DC=...
+    Duplicates of the same certificate (e.g. from different files / symlinks) are ignored.
 
     Args:
         name_pattern: Name or partial name to search (wildcard * allowed)
@@ -554,6 +584,7 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     pattern_re = re.compile(f"^{escaped_pattern}$", re.IGNORECASE)
 
     matches = []
+    seen_real_paths: set[str] = set()
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
@@ -564,9 +595,25 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
                 continue
 
             try:
+                real_path = os.path.realpath(path)
+
+                # Skip duplicate certificates pointing to the same real file
+                if real_path in seen_real_paths:
+                    continue
+                seen_real_paths.add(real_path)
+
                 with open(path, "rb") as f:
                     cert_data = f.read()
-                    cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+                    try:
+                        # PEM support
+                        cert = x509.load_pem_x509_certificate(
+                            cert_data, default_backend()
+                        )
+                    except ValueError:
+                        # Fallback to DER
+                        cert = x509.load_der_x509_certificate(
+                            cert_data, default_backend()
+                        )
                     subject_str = cert.subject.rfc4514_string()
                     components = [comp.strip() for comp in subject_str.split(",")]
 
@@ -577,7 +624,7 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
                         value = match.group(1).strip() if match else comp
                         if pattern_re.match(value):
                             matches.append((path, subject_str))
-                            break  # Search the next line if a match is found
+                            break
 
             except Exception:
                 continue
@@ -597,11 +644,18 @@ def delete_windows_cert_by_sha256(thumbprint: str, cn: str):
     console.print()
     answer = qy.confirm(
         f"Do you really want to remove the certificate: '{cn}'?",
-        style=DEFAULT_QY_STYLE,
         default=False,
+        style=DEFAULT_QY_STYLE,
     ).ask()
     if not answer:
         console.print("[INFO] Operation cancelled by user.")
+        return
+
+    # Validate thumbprint format
+    if not re.fullmatch(r"[A-Fa-f0-9]{40}", thumbprint):
+        console.print(
+            f"[ERROR] Invalid thumbprint format: {thumbprint}", style="#B83B5E"
+        )
         return
 
     delete_cmd = ["certutil", "-delstore", "-user", "ROOT", thumbprint]
@@ -623,45 +677,49 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
     Delete a certificate from the Linux system trust store.
 
     Args:
-        cert_path: Full path to the certificate file to delete.
+        cert_path: Full path to the certificate symlink in /etc/ssl/certs.
         cn: Common Name (CN) of the certificate for display purposes.
     """
 
     console.print()
     answer = qy.confirm(
         f"Do you really want to remove the certificate: '{cn}'?",
-        style=DEFAULT_QY_STYLE,
         default=False,
+        style=DEFAULT_QY_STYLE,
     ).ask()
     if not answer:
         console.print("[INFO] Operation cancelled by user.")
         return
 
     try:
-        # Only delete if inside /etc/ssl/certs
-        cert_dir = "/etc/ssl/certs"
+        cert_dir = Path("/etc/ssl/certs").resolve()
+        source_dir = Path("/usr/local/share/ca-certificates").resolve()
 
-        if os.path.islink(cert_path):
-            target_path = os.readlink(cert_path)
-            if os.path.exists(target_path) and os.path.realpath(target_path).startswith(
-                cert_dir
-            ):
-                subprocess.run(["sudo", "rm", target_path], check=True)
+        cert_path_obj = Path(cert_path)
+
+        # Handle symlink target
+        if cert_path_obj.is_symlink():
+            target_path = cert_path_obj.resolve()
+
+            if target_path.is_relative_to(source_dir):
+                subprocess.run(["sudo", "rm", str(target_path)], check=True)
             else:
                 console.print(
-                    f"[WARNING] Symlink target '{target_path}' is outside {cert_dir}, skipping deletion.",
+                    f"[WARNING] Symlink target '{target_path}' is outside {source_dir}, skipping deletion.",
                     style="#F9ED69",
                 )
 
-        if os.path.realpath(cert_path).startswith(cert_dir):
-            subprocess.run(["sudo", "rm", cert_path], check=True)
+        # Remove the symlink itself if it lives inside /etc/ssl/certs
+        if cert_path_obj.parent.resolve().is_relative_to(cert_dir):
+            subprocess.run(["sudo", "rm", str(cert_path_obj)], check=True)
         else:
             console.print(
-                f"[WARNING] Certificate path '{cert_path}' is outside {cert_dir}, skipping deletion.",
+                f"[WARNING] Certificate path '{cert_path_obj}' is outside {cert_dir}, skipping deletion.",
                 style="#F9ED69",
             )
 
         subprocess.run(["sudo", "update-ca-certificates", "--fresh"], check=True)
+
         console.print(f"[INFO] Certificate '{cn}' removed from Linux trust store.")
         console.print(
             "[NOTE] You may need to restart your system for the changes to take full effect."

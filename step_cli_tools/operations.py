@@ -38,10 +38,10 @@ def show_operations(switch: dict[str | None, object]) -> str | None:
     console.print()
     choice = qy.select(
         "Operation:",
-        style=DEFAULT_QY_STYLE,
         choices=options,
         use_search_filter=True,
         use_jk_keys=False,
+        style=DEFAULT_QY_STYLE,
     ).ask()
 
     return choice
@@ -71,8 +71,8 @@ def operation1():
     ca_input = qy.text(
         "Enter the step CA server hostname or IP (optionally with :port)",
         default=default,
-        style=DEFAULT_QY_STYLE,
         validate=HostnamePortValidator,
+        style=DEFAULT_QY_STYLE,
     ).ask()
 
     if not ca_input or not ca_input.strip():
@@ -124,8 +124,8 @@ def operation1():
         console.print()
         fingerprint = qy.text(
             "Enter the root certificate fingerprint (SHA256, 64 hex chars)",
-            style=DEFAULT_QY_STYLE,
             validate=SHA256Validator,
+            style=DEFAULT_QY_STYLE,
         ).ask()
         # Check for empty input
         if not fingerprint or not fingerprint.strip():
@@ -133,6 +133,35 @@ def operation1():
             return
     # step-cli expects the fingerprint without colons
     fingerprint = fingerprint.replace(":", "")
+
+    # Check if the certificate is already installed
+    system = platform.system()
+    cert_info = None
+
+    if system == "Windows":
+        cert_info = find_windows_cert_by_sha256(fingerprint)
+    elif system == "Linux":
+        cert_info = find_linux_cert_by_sha256(fingerprint)
+    else:
+        console.print(
+            f"[WARNING] Could not check for existing certificates on unsupported platform: {system}",
+            style="#F9ED69",
+        )
+    # Confirm overwrite
+    if cert_info:
+        console.print(
+            f"[INFO] Certificate with fingerprint '{fingerprint}' already exists in the system trust store.",
+            style="#F08A5D",
+        )
+        console.print()
+        overwrite_certificate = qy.confirm(
+            f"Would you like to overwrite it?",
+            default=False,
+            style=DEFAULT_QY_STYLE,
+        ).ask()
+        if not overwrite_certificate:
+            console.print("[INFO] Operation cancelled by user.")
+            return
 
     # Run step-ca bootstrap
     bootstrap_args = [
@@ -176,8 +205,8 @@ def operation2():
     console.print()
     fingerprint_or_search_term = qy.text(
         "Enter the root certificate fingerprint (SHA256, 64 hex chars) or a search term (* wildcards allowed)",
-        style=DEFAULT_QY_STYLE,
         validate=SHA256OrNameValidator,
+        style=DEFAULT_QY_STYLE,
     ).ask()
 
     # Check for empty input
@@ -279,4 +308,7 @@ def operation2():
         delete_linux_cert_by_path(cert_path, cn)
 
     else:
-        console.print(f"[ERROR] Unsupported platform: {system}", style="#B83B5E")
+        console.print(
+            f"[ERROR] Unsupported platform for this operation: {system}",
+            style="#B83B5E",
+        )
