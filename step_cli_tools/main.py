@@ -52,13 +52,13 @@ def main():
         latest_tag_url = f"{profile_url}/{pkg_name}/releases/tag/{latest_version}"
         version_text = (
             f"[#888888]Made by[/#888888] [link={profile_url} bold #FFFFFF]LeoTN[/link]"
-            f"[#888888] - Update Available: {pkg_version} → [/#888888]"
+            f"[#888888] - Update Available: [bold]{pkg_version}[/bold] → [/#888888]"
             f"[link={latest_tag_url} bold #FFFFFF]{latest_version}[/]\n"
         )
     else:
         version_text = (
             f"[#888888]Made by[/#888888] [link={profile_url} bold #FFFFFF]LeoTN[/link]"
-            f"[#888888] - Version [#FFFFFF]{pkg_version}[/]\n"
+            f"[#888888] - Version [bold]{pkg_version}[/]\n"
         )
     logo = """
 [#F9ED69]     _                [#F08A5D]    _ _  [#B83B5E] _              _            [/]
