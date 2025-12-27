@@ -38,6 +38,7 @@ def get_step_binary_path() -> str:
     Raises:
         OSError: If the operating system is not supported.
     """
+
     bin_dir = os.path.join(SCRIPT_HOME_DIR, "bin")
     system = platform.system()
     if system == "Windows":

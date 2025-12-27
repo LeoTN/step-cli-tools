@@ -1,4 +1,4 @@
-# **A CLI Wrapper for a CLI application?!**
+# **A CLI Wrapper for a CLI Application?!**
 
 <p align="left">
         <a href="https://github.com/LeoTN/step-cli-tools/releases/latest" style="text-decoration: none;"><img src="https://img.shields.io/github/v/release/LeoTN/step-cli-tools?&filter=*.*.*&display_name=release&style=for-the-badge&logo=Rocket&logoColor=green&label=LATEST&color=green"></a>
@@ -33,7 +33,7 @@ sct
 
 ## Credits & License
 
-* **step-cli** ([GitHub](https://github.com/smallstep/cli)) → the magic under the hood
+* [**step-cli**](https://github.com/smallstep/cli) → the magic under the hood
 
 
 I appreciate your **constructive** and **honest** feedback. Feel free to create an **issue** or **feature** request.

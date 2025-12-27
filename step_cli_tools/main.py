@@ -18,13 +18,14 @@ from .operations import *
 # --- Main function ---
 
 
-def main() -> None:
+def main():
     """
     Entry point for the Step CLI Tools application.
 
     Returns:
         None
     """
+
     pkg_name = "step-cli-tools"
     profile_url = "https://github.com/LeoTN"
     try:
@@ -72,6 +73,7 @@ def main() -> None:
 
     # Ensure Step CLI is installed
     if not os.path.exists(STEP_BIN):
+        console.print()
         answer = qy.confirm(
             "Step CLI not found. Do you want to install it now?",
             style=DEFAULT_QY_STYLE,

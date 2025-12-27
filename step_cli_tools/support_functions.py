@@ -3,20 +3,21 @@ import json
 import os
 import platform
 import shutil
+import re
 import ssl
 import subprocess
 import tarfile
 import tempfile
 import time
 import urllib.error
-import urllib.request
+import warnings
 from pathlib import Path
 from urllib.request import urlopen
 from zipfile import ZipFile
-import warnings
 
 # --- Third-party imports ---
 from cryptography import x509
+from cryptography.x509.oid import NameOID
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.utils import CryptographyDeprecationWarning
@@ -25,30 +26,22 @@ from packaging import version
 # --- Local application imports ---
 from .common import *
 from .configuration import *
+from .data_classes import *
 
 __all__ = [
-    "ask_boolean_question",
     "check_for_update",
     "install_step_cli",
     "execute_step_command",
     "check_ca_health",
+    "get_ca_root_info",
     "find_windows_cert_by_sha256",
+    "find_windows_certs_by_name",
     "find_linux_cert_by_sha256",
+    "find_linux_certs_by_name",
+    "delete_windows_cert_by_sha256",
+    "delete_linux_cert_by_path",
+    "choose_cert_from_list",
 ]
-
-
-def ask_boolean_question(prompt_text: str) -> bool:
-    """Prompt the user with a yes/no question and return a boolean response."""
-    while True:
-        response = input(f"{prompt_text} (y/n): ").strip().lower()
-        if response == "y":
-            return True
-        elif response == "n":
-            return False
-        else:
-            console.print(
-                "[ERROR] Invalid input. Please enter 'y' or 'n'.", style="#B83B5E"
-            )
 
 
 def check_for_update(
@@ -63,6 +56,7 @@ def check_for_update(
     Returns:
         The latest version string if a newer version exists, otherwise None.
     """
+
     pkg = "step-cli-tools"
     cache = Path.home() / f".{pkg}" / ".cache" / "update_check.json"
     cache.parent.mkdir(parents=True, exist_ok=True)
@@ -107,6 +101,7 @@ def check_for_update(
 
 def install_step_cli(step_bin: str):
     """Download and install the step CLI binary for the current platform."""
+
     system = platform.system()
     arch = platform.machine()
     console.print(f"[INFO] Detected platform: {system} {arch}")
@@ -139,15 +134,30 @@ def install_step_cli(step_bin: str):
             tar_ref.extractall(tmp_dir)
 
     step_bin_name = "step.exe" if system == "Windows" else "step"
-    extracted_path = os.path.join(tmp_dir, step_bin_name)
-    if not os.path.exists(extracted_path):
-        for root, dirs, files in os.walk(tmp_dir):
-            if step_bin_name in files:
-                extracted_path = os.path.join(root, step_bin_name)
-                break
 
+    # Search recursively for the binary
+    matches = []
+    for root, dirs, files in os.walk(tmp_dir):
+        if step_bin_name in files:
+            matches.append(os.path.join(root, step_bin_name))
+
+    if not matches:
+        console.print(
+            f"[ERROR] Could not find {step_bin_name} in the extracted archive.",
+            style="#B83B5E",
+        )
+        return
+
+    extracted_path = matches[0]  # Take the first found binary
+
+    # Prepare installation path
     binary_dir = os.path.dirname(step_bin)
     os.makedirs(binary_dir, exist_ok=True)
+
+    # Remove old binary if exists
+    if os.path.exists(step_bin):
+        os.remove(step_bin)
+
     shutil.move(extracted_path, step_bin)
     os.chmod(step_bin, 0o755)
 
@@ -171,6 +181,7 @@ def execute_step_command(args, step_bin: str, interactive: bool = False):
     Returns:
         Command output as a string if successful, otherwise None.
     """
+
     if not step_bin or not os.path.exists(step_bin):
         console.print(
             "[ERROR] step CLI not found. Please install it first.", style="#B83B5E"
@@ -201,22 +212,22 @@ def execute_step_command(args, step_bin: str, interactive: bool = False):
         return None
 
 
-def check_ca_health(ca_url: str, trust_unknown_default: bool = False) -> bool:
-    """Check the health endpoint of a CA server via HTTPS.
-
-    Args:
-        ca_url: URL to the CA health endpoint.
-        trust_unknown_default: Skip SSL verification immediately if True.
+def execute_ca_request(
+    url: str,
+    trust_unknown_default: bool = False,
+    timeout: int = 10,
+) -> str | None:
+    """
+    Perform an HTTPS request to the CA, handling untrusted certificates if needed.
 
     Returns:
-        True if CA responds "ok", False otherwise.
+        Response body as string, or None on failure or user abort
     """
 
     def do_request(context):
-        with urlopen(ca_url, context=context, timeout=10) as r:
-            return "ok" in r.read().decode("utf-8").strip().lower()
+        with urlopen(url, context=context, timeout=timeout) as response:
+            return response.read().decode("utf-8").strip()
 
-    # Select SSL context
     context = (
         ssl._create_unverified_context()
         if trust_unknown_default
@@ -224,57 +235,172 @@ def check_ca_health(ca_url: str, trust_unknown_default: bool = False) -> bool:
     )
 
     try:
-        if do_request(context):
-            console.print(f"[INFO] CA at {ca_url} is healthy.", style="green")
-            return True
-        console.print(f"[ERROR] CA health check failed for {ca_url}.", style="#B83B5E")
-        return False
+        return do_request(context)
 
     except urllib.error.URLError as e:
         reason = getattr(e, "reason", None)
-        # Handle SSL certificate errors
+
         if isinstance(reason, ssl.SSLCertVerificationError):
             console.print(
-                "[WARNING] Server provided an unknown or untrusted certificate.",
+                "[WARNING] Server provided an unknown or self-signed certificate.",
                 style="#F9ED69",
             )
+
+            console.print()
             answer = qy.confirm(
-                f"Do you really want to trust '{ca_url}'?",
+                f"Do you really want to trust '{url}'?",
                 style=DEFAULT_QY_STYLE,
                 default=False,
             ).ask()
+
             if not answer:
                 console.print("[INFO] Operation cancelled by user.")
-                return False
+                return None
+
             try:
-                if do_request(ssl._create_unverified_context()):
-                    console.print(f"[INFO] CA at {ca_url} is healthy.", style="green")
-                    return True
+                return do_request(ssl._create_unverified_context())
+            except Exception as retry_error:
                 console.print(
-                    f"[ERROR] CA health check failed for {ca_url}.", style="#B83B5E"
+                    f"[ERROR] Retry failed: {retry_error}\n\nIs the port correct and the server available?",
+                    style="#B83B5E",
                 )
-                return False
-            except Exception as e2:
-                console.print(f"[ERROR] Retry failed: {e2}", style="#B83B5E")
-                return False
+                return None
 
         console.print(
             f"[ERROR] Connection failed: {e}\n\nIs the port correct and the server available?",
             style="#B83B5E",
         )
-        return False
+        return None
 
     except Exception as e:
-        console.print(f"[ERROR] CA health check failed: {e}", style="#B83B5E")
+        console.print(
+            f"[ERROR] Request failed: {e}\n\nIs the port correct and the server available?",
+            style="#B83B5E",
+        )
+        return None
+
+
+def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bool:
+    """Check the health endpoint of a CA server via HTTPS."""
+
+    health_url = ca_base_url.rstrip("/") + "/health"
+
+    response = execute_ca_request(
+        health_url,
+        trust_unknown_default=trust_unknown_default,
+    )
+
+    if response is None:
         return False
+
+    if "ok" in response.lower():
+        console.print(f"[INFO] CA at {ca_base_url} is healthy.", style="green")
+        return True
+
+    console.print(
+        f"[ERROR] CA health check failed for {ca_base_url}.",
+        style="#B83B5E",
+    )
+    return False
+
+
+def get_ca_root_info(
+    ca_base_url: str,
+    trust_unknown_default: bool = False,
+) -> CARootInfo | None:
+    """
+    Fetch the first root certificate from a Smallstep CA and return its name
+    and SHA256 fingerprint.
+
+    Args:
+        ca_base_url: Base URL of the CA (e.g. https://my-ca-host:9000)
+        trust_unknown_default: Skip SSL verification immediately if True
+
+    Returns:
+        CARootInfo on success, None on error or user cancel
+    """
+
+    roots_url = ca_base_url.rstrip("/") + "/roots.pem"
+    console.print(f"[INFO] Fetching root certificate from {roots_url}")
+
+    pem_bundle = execute_ca_request(
+        roots_url,
+        trust_unknown_default=trust_unknown_default,
+    )
+
+    if pem_bundle is None:
+        return None
+
+    try:
+        # Extract first PEM certificate
+        match = re.search(
+            "-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+            pem_bundle,
+            re.S,
+        )
+        if not match:
+            console.print("[ERROR] No certificate found in roots.pem", style="#B83B5E")
+            return None
+
+        cert = x509.load_pem_x509_certificate(
+            match.group(0).encode(),
+            default_backend(),
+        )
+
+        # Compute SHA256 fingerprint
+        fingerprint_hex = cert.fingerprint(hashes.SHA256()).hex().upper()
+        fingerprint = ":".join(
+            fingerprint_hex[i : i + 2] for i in range(0, len(fingerprint_hex), 2)
+        )
+
+        # Extract CA name (CN preferred, always string)
+        try:
+            cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+            ca_name = (
+                str(cn[0].value)
+                if cn and cn[0].value is not None
+                else str(cert.subject.rfc4514_string())
+            )
+        except Exception as e:
+            console.print(
+                f"[WARNING] Unable to retrieve CA name: {e}",
+                style="#F9ED69",
+            )
+            ca_name = "Unknown CA"
+
+        console.print(
+            "[INFO] Root CA information retrieved successfully.",
+            style="green",
+        )
+
+        return CARootInfo(
+            ca_name=ca_name,
+            fingerprint_sha256=fingerprint,
+        )
+
+    except Exception as e:
+        console.print(
+            f"[ERROR] Failed to process CA root certificate: {e}",
+            style="#B83B5E",
+        )
+        return None
 
 
 def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
-    """Search Windows user ROOT store for a certificate by SHA-256 fingerprint.
+    """
+    Search the Windows CurrentUser ROOT certificate store for a certificate matching a given SHA256 fingerprint.
+
+    Args:
+        sha256_fingerprint: SHA256 fingerprint of the certificate to search for.
+                            Can include colons or be in uppercase/lowercase.
 
     Returns:
-        Tuple of (thumbprint, subject) if found, else None.
+        A tuple (thumbprint, subject) of the matching certificate if found:
+            - thumbprint: Certificate thumbprint as used by Windows.
+            - subject: Full subject string of the certificate.
+        Returns None if no matching certificate is found or if the query fails.
     """
+
     ps_cmd = r"""
     $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "Root","CurrentUser"
     $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
@@ -308,12 +434,74 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
     return None
 
 
-def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
-    """Search Linux trust store for a certificate by SHA-256 fingerprint.
+def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
+    """
+    Search Windows user ROOT store for certificates by name.
+    Supports simple wildcard '*' and matches separately against
+    each component like CN=..., OU=..., O=..., C=...
+
+    Args:
+        name_pattern: Name or partial name to search (wildcard * allowed)
 
     Returns:
-        Tuple of (path, subject) if found, else None.
+        List of tuples (thumbprint, subject) for all matching certificates
     """
+
+    ps_cmd = r"""
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "Root","CurrentUser"
+    $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+    foreach ($cert in $store.Certificates) {
+        "$($cert.Thumbprint);$($cert.Subject)"
+    }
+    $store.Close()
+    """
+
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True
+    )
+
+    if result.returncode != 0:
+        console.print(f"[ERROR] Failed to query certificates: {result.stderr.strip()}")
+        return []
+
+    # Convert wildcard * to regex
+    escaped_pattern = re.escape(name_pattern).replace(r"\*", ".*")
+    pattern_re = re.compile(f"^{escaped_pattern}$", re.IGNORECASE)
+
+    matches = []
+
+    for line in result.stdout.strip().splitlines():
+        try:
+            thumbprint, subject = line.split(";", 1)
+            components = [comp.strip() for comp in subject.split(",")]
+            for comp in components:
+                # Delete leading CN=, O=, OU=, etc.
+                match = re.match(r"^(?:CN|O|OU|C|DC)=(.*)$", comp, re.IGNORECASE)
+                value = match.group(1).strip() if match else comp
+                if pattern_re.match(value):
+                    matches.append((thumbprint.strip(), subject.strip()))
+                    break  # Search the next line if a match is found
+        except ValueError:
+            continue
+
+    return matches
+
+
+def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
+    """
+    Search the Linux system trust store for a certificate matching a given SHA256 fingerprint.
+
+    Args:
+        sha256_fingerprint: SHA256 fingerprint of the certificate to search for.
+                            Can include colons or be in uppercase/lowercase.
+
+    Returns:
+        A tuple (path, subject) of the matching certificate if found:
+            - path: Full filesystem path to the certificate file in the trust store.
+            - subject: Full subject string of the certificate.
+        Returns None if no matching certificate is found or if the trust store directory is missing.
+    """
+
     cert_dir = "/etc/ssl/certs"
     fingerprint = sha256_fingerprint.lower().replace(":", "")
 
@@ -339,5 +527,185 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
                             return (path, cert.subject.rfc4514_string())
                 except Exception:
                     continue
+
+    return None
+
+
+def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
+    """
+    Search Linux trust store for certificates by name.
+    Supports simple wildcard '*' and matches separately against
+    each component like CN=..., OU=..., O=..., C=..., DC=...
+
+    Args:
+        name_pattern: Name or partial name to search (wildcard * allowed)
+
+    Returns:
+        List of tuples (path, subject) for all matching certificates
+    """
+
+    cert_dir = "/etc/ssl/certs"
+    if not os.path.isdir(cert_dir):
+        console.print(f"[ERROR] Cert directory not found: {cert_dir}")
+        return []
+
+    # Convert wildcard * to regex
+    escaped_pattern = re.escape(name_pattern).replace(r"\*", ".*")
+    pattern_re = re.compile(f"^{escaped_pattern}$", re.IGNORECASE)
+
+    matches = []
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
+
+        for cert_file in os.listdir(cert_dir):
+            path = os.path.join(cert_dir, cert_file)
+            if not os.path.isfile(path):
+                continue
+
+            try:
+                with open(path, "rb") as f:
+                    cert_data = f.read()
+                    cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+                    subject_str = cert.subject.rfc4514_string()
+                    components = [comp.strip() for comp in subject_str.split(",")]
+
+                    for comp in components:
+                        match = re.match(
+                            r"^(?:CN|O|OU|C|DC)=(.*)$", comp, re.IGNORECASE
+                        )
+                        value = match.group(1).strip() if match else comp
+                        if pattern_re.match(value):
+                            matches.append((path, subject_str))
+                            break  # Search the next line if a match is found
+
+            except Exception:
+                continue
+
+    return matches
+
+
+def delete_windows_cert_by_sha256(thumbprint: str, cn: str):
+    """
+    Delete a certificate from the Windows user ROOT store using certutil.
+
+    Args:
+        thumbprint: Thumbprint of the certificate to delete.
+        cn: Common Name (CN) of the certificate for display purposes.
+    """
+
+    console.print()
+    answer = qy.confirm(
+        f"Do you really want to remove the certificate: '{cn}'?",
+        style=DEFAULT_QY_STYLE,
+        default=False,
+    ).ask()
+    if not answer:
+        console.print("[INFO] Operation cancelled by user.")
+        return
+
+    delete_cmd = ["certutil", "-delstore", "-user", "ROOT", thumbprint]
+    result = subprocess.run(delete_cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        console.print(f"[INFO] Certificate '{cn}' removed from Windows ROOT store.")
+        console.print(
+            "[NOTE] You may need to restart your system for the changes to take full effect."
+        )
+    else:
+        console.print(
+            f"[ERROR] Failed to remove certificate: {result.stderr.strip()}",
+            style="#B83B5E",
+        )
+
+
+def delete_linux_cert_by_path(cert_path: str, cn: str):
+    """
+    Delete a certificate from the Linux system trust store.
+
+    Args:
+        cert_path: Full path to the certificate file to delete.
+        cn: Common Name (CN) of the certificate for display purposes.
+    """
+
+    console.print()
+    answer = qy.confirm(
+        f"Do you really want to remove the certificate: '{cn}'?",
+        style=DEFAULT_QY_STYLE,
+        default=False,
+    ).ask()
+    if not answer:
+        console.print("[INFO] Operation cancelled by user.")
+        return
+
+    try:
+        # Only delete if inside /etc/ssl/certs
+        cert_dir = "/etc/ssl/certs"
+
+        if os.path.islink(cert_path):
+            target_path = os.readlink(cert_path)
+            if os.path.exists(target_path) and os.path.realpath(target_path).startswith(
+                cert_dir
+            ):
+                subprocess.run(["sudo", "rm", target_path], check=True)
+            else:
+                console.print(
+                    f"[WARNING] Symlink target '{target_path}' is outside {cert_dir}, skipping deletion.",
+                    style="#F9ED69",
+                )
+
+        if os.path.realpath(cert_path).startswith(cert_dir):
+            subprocess.run(["sudo", "rm", cert_path], check=True)
+        else:
+            console.print(
+                f"[WARNING] Certificate path '{cert_path}' is outside {cert_dir}, skipping deletion.",
+                style="#F9ED69",
+            )
+
+        subprocess.run(["sudo", "update-ca-certificates", "--fresh"], check=True)
+        console.print(f"[INFO] Certificate '{cn}' removed from Linux trust store.")
+        console.print(
+            "[NOTE] You may need to restart your system for the changes to take full effect."
+        )
+
+    except subprocess.CalledProcessError as e:
+        console.print(f"[ERROR] Failed to remove certificate: {e}", style="#B83B5E")
+
+
+def choose_cert_from_list(
+    certs: list[tuple[str, str]], prompt: str = "Select a certificate:"
+) -> tuple[str, str] | None:
+    """
+    Presents a list of certificates to the user and returns the chosen tuple (fingerprint/path, subject).
+
+    Args:
+        certs: List of tuples (id, subject) to choose from
+        prompt: Prompt text for the questionary select
+
+    Returns:
+        The selected tuple or None if user cancels
+    """
+
+    if not certs:
+        return None
+
+    # Extract only the display strings for the choices
+    choices = [subject for _, subject in certs]
+
+    console.print()
+    selected_subject = qy.select(
+        prompt,
+        choices=choices,
+        use_search_filter=True,
+        use_jk_keys=False,
+        style=DEFAULT_QY_STYLE,
+    ).ask()
+
+    if selected_subject is None:
+        return None
+
+    # Return the full tuple matching the selected subject
+    for cert in certs:
+        if cert[1] == selected_subject:
+            return cert
 
     return None
