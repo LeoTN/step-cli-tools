@@ -115,4 +115,3 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       version: "${{ needs.figure_out_release_version.outputs.beta_version }}"
-    secrets: inherit
