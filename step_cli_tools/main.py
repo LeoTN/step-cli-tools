@@ -103,7 +103,6 @@ def main():
         ),
         qy.Choice(
             title="Exit",
-            value=lambda: None,  # exit the menu
         ),
     ]
 
@@ -119,7 +118,7 @@ def main():
             style=DEFAULT_QY_STYLE,
         ).ask()
 
-        if selected_operation is None or selected_operation() is None:
+        if selected_operation is None or selected_operation == "Exit":
             sys.exit()
 
         console.print()

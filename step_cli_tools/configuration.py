@@ -508,8 +508,8 @@ def show_config_operations():
 
     config_operations = [
         qy.Choice(
-            title="Open",
-            description="Open the config file in your default text editor for editing.",
+            title="Edit",
+            description="Open the config file in your default text editor.",
             value=let_user_change_config_file,
         ),
         qy.Choice(
@@ -524,7 +524,6 @@ def show_config_operations():
         ),
         qy.Choice(
             title="Exit",
-            value=lambda: None,  # exit the menu
         ),
     ]
 
@@ -539,7 +538,7 @@ def show_config_operations():
             style=DEFAULT_QY_STYLE,
         ).ask()
 
-        if selected_operation is None or selected_operation() is None:
+        if selected_operation is None or selected_operation == "Exit":
             break
 
         console.print()

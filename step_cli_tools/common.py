@@ -42,11 +42,13 @@ def get_step_binary_path() -> str:
     bin_dir = os.path.join(SCRIPT_HOME_DIR, "bin")
     system = platform.system()
     if system == "Windows":
-        return os.path.join(bin_dir, "step.exe")
+        binary = os.path.join(bin_dir, "step.exe")
     elif system in ("Linux", "Darwin"):
-        return os.path.join(bin_dir, "step")
+        binary = os.path.join(bin_dir, "step")
     else:
         raise OSError(f"Unsupported platform: {system}")
+
+    return os.path.normpath(binary)
 
 
 STEP_BIN = get_step_binary_path()
