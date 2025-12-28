@@ -1,4 +1,4 @@
-# **A CLI Wrapper for a CLI Application?!**
+# **step-cli-tools**
 
 <p align="left">
         <a href="https://github.com/LeoTN/step-cli-tools/releases/latest" style="text-decoration: none;"><img src="https://img.shields.io/github/v/release/LeoTN/step-cli-tools?&filter=*.*.*&display_name=release&style=for-the-badge&logo=Rocket&logoColor=green&label=LATEST&color=green"></a>
@@ -8,7 +8,7 @@
 
 This tool aims to **simplify** the use of the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli**.
 
-<img src="assets/readme.gif" alt="Operation Page" style="width: 70%;">
+<img src="assets/readme.gif">
 
 ## 🚀 Getting Started
 

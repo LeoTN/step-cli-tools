@@ -5,7 +5,7 @@ Require sct.exe
 Set Shell powershell
 Set Width 1500
 Set Height 750
-Set Padding 10
+Set Padding 20
 
 # Start the tool
 Type@300ms sct
