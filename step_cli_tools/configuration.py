@@ -485,19 +485,19 @@ def check_and_repair_config_file():
             console.print("[INFO] Attempting automatic config file repair...")
             config.repair()
             automatic_repair_failed = True
-            continue  # nochmal prüfen
+            continue  # check the repaired file again
 
         # In case the automatic repair fails
         console.print()
-        choice = qy.select(
-            "Choose an action:",
+        selected_action = qy.select(
+            message="Choose an action:",
             choices=["Edit config file", "Reset config file"],
             style=DEFAULT_QY_STYLE,
         ).ask()
 
-        if choice == "Edit config file":
+        if selected_action == "Edit config file":
             let_user_change_config_file(reset_instead_of_discard=True)
-        elif choice == "Reset config file":
+        elif selected_action == "Reset config file":
             config.generate_default(overwrite=True)
         else:
             sys.exit(1)
@@ -506,37 +506,44 @@ def check_and_repair_config_file():
 def show_config_operations():
     """Display available config operations and let the user select one interactively."""
 
-    config_operation_switch = {
-        "Open": let_user_change_config_file,
-        "Validate": validate_with_feedback,
-        "Reset": lambda: config.generate_default(overwrite=True),
-        "Exit": lambda: None,  # no-op for exit
-    }
-    options = list(config_operation_switch.keys())
+    config_operations = [
+        qy.Choice(
+            title="Open",
+            description="Open the config file in your default text editor for editing.",
+            value=let_user_change_config_file,
+        ),
+        qy.Choice(
+            title="Validate",
+            description="Validate the syntax of the config file.",
+            value=validate_with_feedback,
+        ),
+        qy.Choice(
+            title="Reset",
+            description="Reset the config file to its default settings.",
+            value=lambda: config.generate_default(overwrite=True),
+        ),
+        qy.Choice(
+            title="Exit",
+            value=lambda: None,  # exit the menu
+        ),
+    ]
 
     while True:
         # Prompt user to select an operation
         console.print()
-        operation = qy.select(
-            "Config file options:",
-            choices=options,
+        selected_operation = qy.select(
+            message="Config file operation:",
+            choices=config_operations,
             use_search_filter=True,
             use_jk_keys=False,
             style=DEFAULT_QY_STYLE,
         ).ask()
 
-        if operation == "Exit" or operation is None:
+        if selected_operation is None or selected_operation() is None:
             break
 
-        action = config_operation_switch.get(
-            operation,
-            lambda: console.print(
-                f"[WARNING] Unknown operation: {operation}", style="#F9ED69"
-            ),
-        )
-
         console.print()
-        action()
+        selected_operation()
         console.print()
 
 
@@ -577,8 +584,8 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
         # If validation failed
         console.print("[ERROR] Configuration is invalid.", style="#B83B5E")
         console.print()
-        choice = qy.select(
-            "Choose an action:",
+        selected_action = qy.select(
+            message="Choose an action:",
             choices=[
                 "Edit again",
                 "Reset config file" if reset_instead_of_discard else "Discard changes",
@@ -586,11 +593,11 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
             style=DEFAULT_QY_STYLE,
         ).ask()
 
-        if choice == "Reset config file":
+        if selected_action == "Reset config file":
             config.generate_default(overwrite=True)
             return
 
-        if choice == "Discard changes":
+        if selected_action == "Discard changes":
             # Restore backup
             shutil.copy(backup_path, config.file_location)
             config.load()

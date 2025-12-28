@@ -58,7 +58,7 @@ def main():
     else:
         version_text = (
             f"[#888888]Made by[/#888888] [link={profile_url} bold #FFFFFF]LeoTN[/link]"
-            f"[#888888] - Version [bold]{pkg_version}[/]\n"
+            f"[#888888] - Version [bold #FFFFFF]{pkg_version}[/]\n"
         )
     logo = """
 [#F9ED69]     _                [#F08A5D]    _ _  [#B83B5E] _              _            [/]
@@ -75,7 +75,7 @@ def main():
     if not os.path.exists(STEP_BIN):
         console.print()
         answer = qy.confirm(
-            "Step CLI not found. Do you want to install it now?",
+            message="Step CLI not found. Do you want to install it now?",
             style=DEFAULT_QY_STYLE,
         ).ask()
         if answer:
@@ -85,26 +85,45 @@ def main():
             sys.exit(0)
 
     # Define operations and their corresponding functions
-    operation_switch = {
-        "Install root CA on the system": operation1,
-        "Uninstall root CA from the system (Windows & Linux)": operation2,
-        "Configuration": show_config_operations,
-        "Exit": sys.exit,
-        None: sys.exit,
-    }
+    operations = [
+        qy.Choice(
+            title="Install root CA on the system",
+            description="Add a root certificate of your step-ca server into the system trust store.",
+            value=operation1,
+        ),
+        qy.Choice(
+            title="Uninstall root CA from the system (Windows & Linux)",
+            description="Delete a root certificate (of your step-ca server) from the system trust store.",
+            value=operation2,
+        ),
+        qy.Choice(
+            title="Configuration",
+            description="View and edit the configuration file.",
+            value=show_config_operations,
+        ),
+        qy.Choice(
+            title="Exit",
+            value=lambda: None,  # exit the menu
+        ),
+    ]
 
     # Interactive menu loop
     while True:
         console.print()
-        operation = show_operations(operation_switch)
-        action = operation_switch.get(
-            operation,
-            lambda: console.print(
-                f"[WARNING] Unknown operation: {operation}", style="#F9ED69"
-            ),
-        )
+        # Prompt the user to select an operation
+        selected_operation = qy.select(
+            message="Operation:",
+            choices=operations,
+            use_search_filter=True,
+            use_jk_keys=False,
+            style=DEFAULT_QY_STYLE,
+        ).ask()
+
+        if selected_operation is None or selected_operation() is None:
+            sys.exit()
+
         console.print()
-        action()
+        selected_operation()
         console.print()
 
 

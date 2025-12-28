@@ -248,7 +248,7 @@ def execute_ca_request(
 
             console.print()
             answer = qy.confirm(
-                f"Do you really want to trust '{url}'?",
+                message=f"Do you want to trust '{url}' this time?",
                 default=False,
                 style=DEFAULT_QY_STYLE,
             ).ask()
@@ -643,7 +643,7 @@ def delete_windows_cert_by_sha256(thumbprint: str, cn: str):
 
     console.print()
     answer = qy.confirm(
-        f"Do you really want to remove the certificate: '{cn}'?",
+        message=f"Do you really want to remove the certificate: '{cn}'?",
         default=False,
         style=DEFAULT_QY_STYLE,
     ).ask()
@@ -683,7 +683,7 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
 
     console.print()
     answer = qy.confirm(
-        f"Do you really want to remove the certificate: '{cn}'?",
+        message=f"Do you really want to remove the certificate: '{cn}'?",
         default=False,
         style=DEFAULT_QY_STYLE,
     ).ask()
@@ -730,14 +730,14 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
 
 
 def choose_cert_from_list(
-    certs: list[tuple[str, str]], prompt: str = "Select a certificate:"
+    certs: list[tuple[str, str]], message: str = "Select a certificate:"
 ) -> tuple[str, str] | None:
     """
-    Presents a list of certificates to the user and returns the chosen tuple (fingerprint/path, subject).
+    Presents a alphabetically sorted list of certificates to the user and returns the chosen tuple (fingerprint/path, subject).
 
     Args:
         certs: List of tuples (id, subject) to choose from
-        prompt: Prompt text for the questionary select
+        message: message text for the questionary select
 
     Returns:
         The selected tuple or None if user cancels
@@ -746,12 +746,15 @@ def choose_cert_from_list(
     if not certs:
         return None
 
-    # Extract only the display strings for the choices
-    choices = [subject for _, subject in certs]
+    # Sort certificates alphabetically by subject (case-insensitive)
+    sorted_certs = sorted(certs, key=lambda cert: cert[1].lower())
+
+    # Extract subjects from the sorted list
+    choices = [subject for _, subject in sorted_certs]
 
     console.print()
     selected_subject = qy.select(
-        prompt,
+        message=message,
         choices=choices,
         use_search_filter=True,
         use_jk_keys=False,
@@ -762,7 +765,7 @@ def choose_cert_from_list(
         return None
 
     # Return the full tuple matching the selected subject
-    for cert in certs:
+    for cert in sorted_certs:
         if cert[1] == selected_subject:
             return cert
 

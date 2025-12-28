@@ -13,38 +13,9 @@ from .support_functions import *
 from .validators import *
 
 __all__ = [
-    "show_operations",
     "operation1",
     "operation2",
 ]
-
-
-def show_operations(switch: dict[str | None, object]) -> str | None:
-    """
-    Display available operations and let the user select one interactively.
-
-    Args:
-        switch (dict[str | None, object]): Dictionary mapping option names
-            (or None) to their corresponding functions.
-
-    Returns:
-        str | None: The selected option name, or None if canceled.
-    """
-
-    # Filter out None from the displayed options
-    options = [opt for opt in switch.keys() if opt is not None]
-
-    # Prompt user to select an operation
-    console.print()
-    choice = qy.select(
-        "Operation:",
-        choices=options,
-        use_search_filter=True,
-        use_jk_keys=False,
-        style=DEFAULT_QY_STYLE,
-    ).ask()
-
-    return choice
 
 
 def operation1():
@@ -69,7 +40,7 @@ def operation1():
     default = config.get("ca_server_config.default_ca_server")
     console.print()
     ca_input = qy.text(
-        "Enter the step CA server hostname or IP (optionally with :port)",
+        message="Enter the step CA server hostname or IP (optionally with :port)",
         default=default,
         validate=HostnamePortValidator,
         style=DEFAULT_QY_STYLE,
@@ -113,7 +84,7 @@ def operation1():
         # Ask the user if they would like to use this fingerprint or enter it manually
         console.print()
         use_fingerprint = qy.confirm(
-            f"Continue? (Abort to enter the fingerprint manually)",
+            message=f"Continue with installation of this root CA? (Abort to enter the fingerprint manually)",
             style=DEFAULT_QY_STYLE,
         ).ask()
 
@@ -123,7 +94,7 @@ def operation1():
         # Ask for fingerprint
         console.print()
         fingerprint = qy.text(
-            "Enter the root certificate fingerprint (SHA256, 64 hex chars)",
+            message="Enter the root certificate fingerprint (SHA256, 64 hex chars)",
             validate=SHA256Validator,
             style=DEFAULT_QY_STYLE,
         ).ask()
@@ -155,7 +126,7 @@ def operation1():
         )
         console.print()
         overwrite_certificate = qy.confirm(
-            f"Would you like to overwrite it?",
+            message=f"Would you like to overwrite it?",
             default=False,
             style=DEFAULT_QY_STYLE,
         ).ask()
@@ -204,7 +175,7 @@ def operation2():
     # Ask for the fingerprint or a search term
     console.print()
     fingerprint_or_search_term = qy.text(
-        "Enter the root certificate fingerprint (SHA256, 64 hex chars) or a search term (* wildcards allowed)",
+        message="Enter the root certificate fingerprint (SHA256, 64 hex chars) or a search term (* wildcards allowed)",
         validate=SHA256OrNameValidator,
         style=DEFAULT_QY_STYLE,
     ).ask()
@@ -242,7 +213,7 @@ def operation2():
 
         elif search_term:
             console.print(
-                f"[INFO] Searching for certificate in Windows user ROOT store with search term '{search_term}' ..."
+                f"[INFO] Searching for certificate(s) in Windows user ROOT store with search term '{search_term}' ..."
             )
             certs_info = find_windows_certs_by_name(search_term)
             if not certs_info:
@@ -282,7 +253,7 @@ def operation2():
 
         elif search_term:
             console.print(
-                f"[INFO] Searching for certificate in Linux trust store with search term '{search_term}' ..."
+                f"[INFO] Searching for certificate(s) in Linux trust store with search term '{search_term}' ..."
             )
             certs_info = find_linux_certs_by_name(search_term)
             if not certs_info:
