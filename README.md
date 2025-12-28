@@ -8,7 +8,7 @@
 
 This tool aims to **simplify** the use of the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli**.
 
-<img src="assets/operation_page_readme.png" alt="Operation Page" style="width: 70%;">
+<img src="assets/readme.gif" alt="Operation Page" style="width: 70%;">
 
 ## 🚀 Getting Started
 
@@ -34,6 +34,7 @@ sct
 ## Credits & License
 
 * [**step-cli**](https://github.com/smallstep/cli) → the magic under the hood
+* [**vhs**](https://github.com/charmbracelet/vhs) → creation of the terminal GIF
 
 
 I appreciate your **constructive** and **honest** feedback. Feel free to create an **issue** or **feature** request.

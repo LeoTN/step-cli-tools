@@ -154,7 +154,7 @@ def install_step_cli(step_bin: str):
     binary_dir = os.path.dirname(step_bin)
     os.makedirs(binary_dir, exist_ok=True)
 
-    # Remove old binary if exists
+    # Delete old binary if exists
     if os.path.exists(step_bin):
         os.remove(step_bin)
 
@@ -321,7 +321,6 @@ def get_ca_root_info(
     """
 
     roots_url = ca_base_url.rstrip("/") + "/roots.pem"
-    console.print(f"[INFO] Fetching root certificate from {roots_url}")
 
     pem_bundle = execute_ca_request(
         roots_url,
@@ -709,7 +708,7 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
                     style="#F9ED69",
                 )
 
-        # Remove the symlink itself if it lives inside /etc/ssl/certs
+        # Delete the symlink itself if it lives inside /etc/ssl/certs
         if cert_path_obj.parent.resolve().is_relative_to(cert_dir):
             subprocess.run(["sudo", "rm", str(cert_path_obj)], check=True)
         else:

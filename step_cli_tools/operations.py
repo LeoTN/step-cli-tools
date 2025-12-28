@@ -40,7 +40,7 @@ def operation1():
     default = config.get("ca_server_config.default_ca_server")
     console.print()
     ca_input = qy.text(
-        message="Enter the step CA server hostname or IP (optionally with :port)",
+        message="Enter step CA server hostname or IP (optionally with :port)",
         default=default,
         validate=HostnamePortValidator,
         style=DEFAULT_QY_STYLE,
@@ -54,8 +54,6 @@ def operation1():
     ca_server, _, port_str = ca_input.partition(":")
     port = int(port_str) if port_str else 9000
     ca_base_url = f"https://{ca_server}:{port}"
-
-    console.print(f"[INFO] Checking CA health for {ca_base_url} ...")
 
     # Run the health check via helper
     trust_unknown_default = config.get(
@@ -94,7 +92,7 @@ def operation1():
         # Ask for fingerprint
         console.print()
         fingerprint = qy.text(
-            message="Enter the root certificate fingerprint (SHA256, 64 hex chars)",
+            message="Enter root certificate fingerprint (SHA256, 64 hex chars)",
             validate=SHA256Validator,
             style=DEFAULT_QY_STYLE,
         ).ask()
@@ -146,8 +144,7 @@ def operation1():
         "--force",
     ]
 
-    console.print(f"[INFO] Running step ca bootstrap on {ca_base_url} ...")
-    result = execute_step_command(bootstrap_args, STEP_BIN, interactive=True)
+    result = execute_step_command(bootstrap_args, STEP_BIN)
     if isinstance(result, str):
         console.print(
             "[NOTE] You may need to restart your system for the changes to take full effect."
@@ -175,7 +172,7 @@ def operation2():
     # Ask for the fingerprint or a search term
     console.print()
     fingerprint_or_search_term = qy.text(
-        message="Enter the root certificate fingerprint (SHA256, 64 hex chars) or a search term (* wildcards allowed)",
+        message="Enter root certificate fingerprint (SHA256, 64 hex chars) or search term (* wildcards allowed)",
         validate=SHA256OrNameValidator,
         style=DEFAULT_QY_STYLE,
     ).ask()
@@ -200,32 +197,27 @@ def operation2():
 
     if system == "Windows":
         if fingerprint:
-            console.print(
-                f"[INFO] Searching for certificate in Windows user ROOT store with fingerprint '{fingerprint}' ..."
-            )
             cert_info = find_windows_cert_by_sha256(fingerprint)
             if not cert_info:
                 console.print(
-                    f"[ERROR] Certificate with fingerprint '{fingerprint}' not found in Windows ROOT store.",
+                    f"[ERROR] No certificate with fingerprint '{fingerprint}' was found in the Windows user ROOT trust store.",
                     style="#B83B5E",
                 )
                 return
 
         elif search_term:
-            console.print(
-                f"[INFO] Searching for certificate(s) in Windows user ROOT store with search term '{search_term}' ..."
-            )
             certs_info = find_windows_certs_by_name(search_term)
             if not certs_info:
                 console.print(
-                    f"[ERROR] Certificate(s) with search term '{search_term}' not found in Windows ROOT store.",
+                    f"[ERROR] No certificates matching '{search_term}' were found in the Windows user ROOT trust store.",
                     style="#B83B5E",
                 )
                 return
 
             cert_info = (
                 choose_cert_from_list(
-                    certs_info, "Multiple certificates found. Select the one to remove:"
+                    certs_info,
+                    "Multiple certificates were found. Please select the one to remove:",
                 )
                 if len(certs_info) > 1
                 else certs_info[0]
@@ -240,32 +232,27 @@ def operation2():
 
     elif system == "Linux":
         if fingerprint:
-            console.print(
-                f"[INFO] Searching for certificate in Linux trust store with fingerprint '{fingerprint}' ..."
-            )
             cert_info = find_linux_cert_by_sha256(fingerprint)
             if not cert_info:
                 console.print(
-                    f"[ERROR] Certificate with fingerprint '{fingerprint}' not found in Linux trust store.",
+                    f"[ERROR] No certificate with fingerprint '{fingerprint}' was found in the Linux trust store.",
                     style="#B83B5E",
                 )
                 return
 
         elif search_term:
-            console.print(
-                f"[INFO] Searching for certificate(s) in Linux trust store with search term '{search_term}' ..."
-            )
             certs_info = find_linux_certs_by_name(search_term)
             if not certs_info:
                 console.print(
-                    f"[ERROR] Certificate(s) with search term '{search_term}' not found in Linux trust store.",
+                    f"[ERROR] No certificates matching '{search_term}' were found in the Linux trust store.",
                     style="#B83B5E",
                 )
                 return
 
             cert_info = (
                 choose_cert_from_list(
-                    certs_info, "Multiple certificates found. Select the one to remove:"
+                    certs_info,
+                    "Multiple certificates were found. Please select the one to remove:",
                 )
                 if len(certs_info) > 1
                 else certs_info[0]

@@ -19,13 +19,6 @@ from .operations import *
 
 
 def main():
-    """
-    Entry point for the Step CLI Tools application.
-
-    Returns:
-        None
-    """
-
     pkg_name = "step-cli-tools"
     profile_url = "https://github.com/LeoTN"
     try:
@@ -81,7 +74,6 @@ def main():
         if answer:
             install_step_cli(STEP_BIN)
         else:
-            console.print("[INFO] Exiting program.")
             sys.exit(0)
 
     # Define operations and their corresponding functions
@@ -119,7 +111,7 @@ def main():
         ).ask()
 
         if selected_operation is None or selected_operation == "Exit":
-            sys.exit()
+            sys.exit(0)
 
         console.print()
         selected_operation()
