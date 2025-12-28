@@ -294,11 +294,11 @@ def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bo
         return False
 
     if "ok" in response.lower():
-        console.print(f"[INFO] CA at {ca_base_url} is healthy.", style="green")
+        console.print(f"[INFO] CA at '{ca_base_url}' is healthy.", style="green")
         return True
 
     console.print(
-        f"[ERROR] CA health check failed for {ca_base_url}.",
+        f"[ERROR] CA health check failed for '{ca_base_url}'.",
         style="#B83B5E",
     )
     return False

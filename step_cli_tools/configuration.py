@@ -64,7 +64,7 @@ class Configuration:
                 yaml.dump(self._data, f)
         except (OSError, IOError) as e:
             console.print(
-                f"[ERROR] Could not save settings to {self.file_location}: {e}",
+                f"[ERROR] Could not save settings to '{self.file_location}': {e}",
                 style="#B83B5E",
             )
 
@@ -102,7 +102,7 @@ class Configuration:
                 yaml.dump(default_data, f)
 
             console.print(
-                f"[INFO] Default configuration file generated successfully at: {self.file_location}",
+                f"[INFO] Default configuration file was generated successfully: {self.file_location}",
                 style="green",
             )
 

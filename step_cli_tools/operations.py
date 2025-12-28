@@ -124,7 +124,7 @@ def operation1():
         )
         console.print()
         overwrite_certificate = qy.confirm(
-            message=f"Would you like to overwrite it?",
+            message="Would you like to overwrite it?",
             default=False,
             style=DEFAULT_QY_STYLE,
         ).ask()

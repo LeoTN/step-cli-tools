@@ -24,14 +24,17 @@ def main():
     try:
         pkg_version = version(pkg_name)
     except PackageNotFoundError:
-        pkg_version = "development"
+        pkg_version = "0.0.0"
 
     # Verify and load the config file
     check_and_repair_config_file()
     config.load()
 
-    # Check for updates and display version info
-    if config.get("update_config.check_for_updates_at_launch"):
+    # Check for updates and when running a release version (not 0.0.0)
+    if (
+        config.get("update_config.check_for_updates_at_launch")
+        and pkg_version != "0.0.0"
+    ):
         include_prerelease = config.get(
             "update_config.consider_beta_versions_as_available_updates"
         )
@@ -53,6 +56,17 @@ def main():
             f"[#888888]Made by[/#888888] [link={profile_url} bold #FFFFFF]LeoTN[/link]"
             f"[#888888] - Version [bold #FFFFFF]{pkg_version}[/]\n"
         )
+        # Hide the version text if the version is 0.0.0
+        version_text = (
+            f"[#888888]Made by[/#888888] [link={profile_url} bold #FFFFFF]LeoTN[/link]"
+            + (
+                f"[#888888] - Version [bold #FFFFFF]{pkg_version}[/]"
+                if pkg_version != "0.0.0"
+                else ""
+            )
+            + "\n"
+        )
+
     logo = """
 [#F9ED69]     _                [#F08A5D]    _ _  [#B83B5E] _              _            [/]
 [#F9ED69] ___| |_ ___ _ __     [#F08A5D]___| (_) [#B83B5E]| |_ ___   ___ | |___        [/]
