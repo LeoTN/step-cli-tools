@@ -44,7 +44,7 @@ class Configuration:
         self._data = CommentedMap()
 
     # --- File and public API handling ---
-    def load(self) -> None:
+    def load(self):
         """Load YAML config and merge defaults into a CommentedMap with comments."""
         if self.file_location.exists():
             try:
@@ -57,18 +57,18 @@ class Configuration:
 
         self._data = self._build_commented_data(self.schema, loaded)
 
-    def save(self) -> None:
+    def save(self):
         """Save current configuration data to YAML file."""
         try:
             with self.file_location.open("w", encoding="utf-8") as f:
                 yaml.dump(self._data, f)
         except (OSError, IOError) as e:
             console.print(
-                f"[ERROR] Could not save settings to {self.file_location}: {e}",
+                f"[ERROR] Could not save settings to '{self.file_location}': {e}",
                 style="#B83B5E",
             )
 
-    def generate_default(self, overwrite: bool = False) -> None:
+    def generate_default(self, overwrite: bool = False):
         """
         Generate a default configuration file from the schema.
 
@@ -102,7 +102,7 @@ class Configuration:
                 yaml.dump(default_data, f)
 
             console.print(
-                f"[INFO] Default configuration file generated successfully at: {self.file_location}",
+                f"[INFO] Default configuration file was generated successfully: {self.file_location}",
                 style="green",
             )
 
@@ -136,7 +136,7 @@ class Configuration:
             data = data[part]
         return data
 
-    def set(self, key: str, value) -> None:
+    def set(self, key: str, value):
         """Set a value using a dotted key path, cast to schema type if needed.
 
         Args:
@@ -176,7 +176,7 @@ class Configuration:
         if self.autosave:
             self.save()
 
-    def repair(self) -> None:
+    def repair(self):
         """Restore missing keys and values from the schema and optionally autosave."""
         self._data = self._build_commented_data(
             self.schema, self._data, repair_damaged_keys=True
@@ -458,7 +458,7 @@ class Configuration:
         return node
 
 
-def check_and_repair_config_file() -> None:
+def check_and_repair_config_file():
     """Ensure the config file exists and is valid. Allow repair/edit/reset if invalid."""
 
     # Generate default config if missing
@@ -485,59 +485,68 @@ def check_and_repair_config_file() -> None:
             console.print("[INFO] Attempting automatic config file repair...")
             config.repair()
             automatic_repair_failed = True
-            continue  # nochmal prüfen
+            continue  # check the repaired file again
 
         # In case the automatic repair fails
-        choice = qy.select(
-            "Choose an action:",
+        console.print()
+        selected_action = qy.select(
+            message="Choose an action:",
             choices=["Edit config file", "Reset config file"],
             style=DEFAULT_QY_STYLE,
         ).ask()
 
-        if choice == "Edit config file":
+        if selected_action == "Edit config file":
             let_user_change_config_file(reset_instead_of_discard=True)
-        elif choice == "Reset config file":
+        elif selected_action == "Reset config file":
             config.generate_default(overwrite=True)
         else:
             sys.exit(1)
 
 
-def show_config_operations() -> None:
+def show_config_operations():
     """Display available config operations and let the user select one interactively."""
-    config_operation_switch = {
-        "Open": let_user_change_config_file,
-        "Validate": validate_with_feedback,
-        "Reset": lambda: config.generate_default(overwrite=True),
-        "Exit": lambda: None,  # no-op for exit
-    }
-    options = list(config_operation_switch.keys())
+
+    config_operations = [
+        qy.Choice(
+            title="Edit",
+            description="Open the config file in your default text editor.",
+            value=let_user_change_config_file,
+        ),
+        qy.Choice(
+            title="Validate",
+            description="Validate the syntax of the config file.",
+            value=validate_with_feedback,
+        ),
+        qy.Choice(
+            title="Reset",
+            description="Reset the config file to its default settings.",
+            value=lambda: config.generate_default(overwrite=True),
+        ),
+        qy.Choice(
+            title="Exit",
+        ),
+    ]
 
     while True:
         # Prompt user to select an operation
-        operation = qy.select(
-            "Config file options:",
-            style=DEFAULT_QY_STYLE,
-            choices=options,
+        console.print()
+        selected_operation = qy.select(
+            message="Config file operation:",
+            choices=config_operations,
             use_search_filter=True,
             use_jk_keys=False,
+            style=DEFAULT_QY_STYLE,
         ).ask()
 
-        if operation == "Exit" or operation is None:
+        if selected_operation is None or selected_operation == "Exit":
             break
 
-        action = config_operation_switch.get(
-            operation,
-            lambda: console.print(
-                f"[WARNING] Unknown operation: {operation}", style="#F9ED69"
-            ),
-        )
-
         console.print()
-        action()
+        selected_operation()
         console.print()
 
 
-def let_user_change_config_file(reset_instead_of_discard: bool = False) -> None:
+def let_user_change_config_file(reset_instead_of_discard: bool = False):
     """
     Open the config file in the user's preferred text editor, validate changes,
     and reload if valid. If invalid, allow the user to discard or retry.
@@ -573,8 +582,9 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False) -> None:
 
         # If validation failed
         console.print("[ERROR] Configuration is invalid.", style="#B83B5E")
-        choice = qy.select(
-            "Choose an action:",
+        console.print()
+        selected_action = qy.select(
+            message="Choose an action:",
             choices=[
                 "Edit again",
                 "Reset config file" if reset_instead_of_discard else "Discard changes",
@@ -582,11 +592,11 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False) -> None:
             style=DEFAULT_QY_STYLE,
         ).ask()
 
-        if choice == "Reset config file":
+        if selected_action == "Reset config file":
             config.generate_default(overwrite=True)
             return
 
-        if choice == "Discard changes":
+        if selected_action == "Discard changes":
             # Restore backup
             shutil.copy(backup_path, config.file_location)
             config.load()
@@ -604,6 +614,7 @@ def open_in_editor(file_path: str | Path):
       - On macOS: uses 'open -W -t'
       - On Linux: tries common editors (nano, vim) or falls back to xdg-open (non-blocking)
     """
+
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
@@ -674,13 +685,13 @@ config_schema = {
             "type": bool,
             "default": True,
             "validator": bool_validator,
-            "comment": "If enabled, the application checks for available updates at launch once the cache lifetime is over",
+            "comment": "If true, the application checks for available updates at launch once the cache lifetime is over",
         },
         "consider_beta_versions_as_available_updates": {
             "type": bool,
             "default": False,
             "validator": bool_validator,
-            "comment": "If enabled, beta releases will be considered as available updates",
+            "comment": "If true, beta releases will be considered as available updates",
         },
         "check_for_updates_cache_lifetime_seconds": {
             "type": int,
@@ -692,18 +703,24 @@ config_schema = {
         },
     },
     "ca_server_config": {
-        "comment": "Settings that affect the ca server behavior",
+        "comment": "Settings that affect the CA server behavior",
         "default_ca_server": {
             "type": str,
             "default": "",
             "validator": server_validator,
-            "comment": "The ca server which will be used by default (optionally with :port)",
+            "comment": "The CA server which will be used by default (optionally with :port)",
         },
-        "trust_unknow_ca_servers_by_default": {
+        "trust_unknow_certificates_by_default": {
             "type": bool,
             "default": False,
             "validator": bool_validator,
-            "comment": "If enabled, any ca server providing an unknown self-signed certificate will be trusted by default",
+            "comment": "If true, any CA server providing an unknown self-signed certificate will be trusted by default",
+        },
+        "fetch_root_ca_certificate_automatically": {
+            "type": bool,
+            "default": True,
+            "validator": bool_validator,
+            "comment": "If false, the root certificate won't be fetched automatically from the CA server. You will need to enter the fingerprint manually when installing a root CA certificate",
         },
     },
 }

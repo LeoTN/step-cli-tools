@@ -5,6 +5,7 @@ from questionary import Validator, ValidationError
 __all__ = [
     "HostnamePortValidator",
     "SHA256Validator",
+    "SHA256OrNameValidator",
     "int_range_validator",
     "str_allowed_validator",
     "bool_validator",
@@ -52,10 +53,25 @@ class SHA256Validator(Validator):
         # Delete colons if present
         normalized = value.replace(":", "")
 
-        # Check if it is a valid SHA-256 fingerprint
+        # Check if it is a valid SHA256 fingerprint
         if not re.fullmatch(r"[A-Fa-f0-9]{64}", normalized):
             raise ValidationError(
-                message="Invalid SHA-256 fingerprint. Must be 64 hexadecimal characters (optionally colon-separated).",
+                message="Invalid SHA256 fingerprint. Must be 64 hexadecimal characters (optionally colon-separated).",
+                cursor_position=len(document.text),
+            )
+
+
+class SHA256OrNameValidator(Validator):
+    def validate(self, document):
+        value = document.text.strip()
+
+        # Delete colons if present
+        normalized = value.replace(":", "")
+
+        # Automatically accepts SHA256 fingerprints
+        if not re.fullmatch(r"[A-Za-z0-9\s\-\_\*]+", normalized):
+            raise ValidationError(
+                message="Invalid input. Enter a SHA256 fingerprint or a name with optional '*'",
                 cursor_position=len(document.text),
             )
 
@@ -121,6 +137,7 @@ def bool_validator(value) -> str | None:
     Returns:
         None if valid, otherwise a descriptive string.
     """
+
     if not isinstance(value, bool):
         return f"Invalid type: expected bool, got {type(value).__name__}"
     return None
@@ -136,6 +153,7 @@ def server_validator(value: str) -> str | None:
     Returns:
         None if valid, otherwise a descriptive string.
     """
+
     if not isinstance(value, str):
         return f"Invalid type: expected string, got {type(value).__name__}"
 

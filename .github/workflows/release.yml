@@ -163,36 +163,42 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          # Fetch all history for all tags and branches
+          fetch-depth: 0
 
       - name: Delete old beta tags and releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git fetch --prune --unshallow --tags
-          latest_tag=$(git describe --tags --abbrev=0)
-          echo "[INFO] Found latest tag: $latest_tag"
-
-          # Check if the tag is a beta release
-          if [[ "$latest_tag" =~ ^.*b[0-9]+$ ]]; then
-            echo "[INFO] Deleting old beta release and tag: $latest_tag"
-              
-            # Delete the old beta release
-            RELEASE_ID=$(gh api -X GET "/repos/${{ github.repository }}/releases" | jq -r ".[] | select(.tag_name==\"$latest_tag\") | .id")
-            if [ -n "$RELEASE_ID" ]; then
-              gh api -X DELETE "/repos/${{ github.repository }}/releases/$RELEASE_ID"
-              echo "[INFO] Deleted release for tag: $latest_tag"
-            else
-              echo "[INFO] No release found for tag: $latest_tag"
-            fi
-
-            # Deletes the old beta tag
-            git tag --delete "$latest_tag"
-            git push --delete origin "$latest_tag"
-            echo "[INFO] Deleted tag: $latest_tag"
-
-          else
-            echo "[INFO] Could not find a beta release and tag to delete."
+          # List all beta tags
+          beta_tags=$(git tag --list '*b[0-9]*')
+          if [ -z "$beta_tags" ]; then
+            echo "[INFO] No beta tags found. Nothing to delete."
+            exit 0
           fi
+
+          echo "[INFO] Beta tags to delete: $beta_tags"
+
+          for tag in $beta_tags; do
+            echo "[INFO] Deleting beta release and tag: $tag"
+
+            # Get release ID(s) for the tag
+            RELEASE_IDS=$(gh api -X GET "/repos/${{ github.repository }}/releases" | jq -r ".[] | select(.tag_name==\"$tag\") | .id")
+
+            for id in $RELEASE_IDS; do
+              echo "[INFO] Deleting release ID: $id for tag $tag"
+              gh api -X DELETE "/repos/${{ github.repository }}/releases/$id"
+            done
+
+            # Delete the tag locally and remotely
+            git tag --delete "$tag" || true
+            git push --delete origin "$tag" || true
+
+            echo "[INFO] Deleted tag and release(s) for: $tag"
+          done
+
+          echo "[INFO] Cleanup of beta releases complete."
 
   github_release:
     name: Publish GitHub release

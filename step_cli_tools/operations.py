@@ -1,7 +1,6 @@
 # --- Standard library imports ---
-import os
 import platform
-import subprocess
+import re
 
 # --- Third-party imports ---
 from rich.panel import Panel
@@ -14,39 +13,12 @@ from .support_functions import *
 from .validators import *
 
 __all__ = [
-    "show_operations",
     "operation1",
     "operation2",
 ]
 
 
-def show_operations(switch: dict[str | None, object]) -> str | None:
-    """
-    Display available operations and let the user select one interactively.
-
-    Args:
-        switch (dict[str | None, object]): Dictionary mapping option names
-            (or None) to their corresponding functions.
-
-    Returns:
-        str | None: The selected option name, or None if canceled.
-    """
-    # Filter out None from the displayed options
-    options = [opt for opt in switch.keys() if opt is not None]
-
-    # Prompt user to select an operation
-    choice = qy.select(
-        "Operation:",
-        style=DEFAULT_QY_STYLE,
-        choices=options,
-        use_search_filter=True,
-        use_jk_keys=False,
-    ).ask()
-
-    return choice
-
-
-def operation1() -> None:
+def operation1():
     """
     Perform the CA bootstrap operation.
 
@@ -56,20 +28,22 @@ def operation1() -> None:
     Returns:
         None
     """
+
     warning_text = (
         "You are about to install a root CA on your system.\n"
         "This may pose a potential security risk to your device.\n"
-        "Make sure you fully trust the CA before proceeding!"
+        "Make sure you fully [bold]trust the CA before proceeding![/bold]"
     )
     console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
     # Ask for CA hostname/IP and port
     default = config.get("ca_server_config.default_ca_server")
+    console.print()
     ca_input = qy.text(
-        "Enter the step CA server hostname or IP (optionally with :port)",
+        message="Enter step CA server hostname or IP (optionally with :port)",
         default=default,
-        style=DEFAULT_QY_STYLE,
         validate=HostnamePortValidator,
+        style=DEFAULT_QY_STYLE,
     ).ask()
 
     if not ca_input or not ca_input.strip():
@@ -79,160 +53,220 @@ def operation1() -> None:
     # Parse host and port
     ca_server, _, port_str = ca_input.partition(":")
     port = int(port_str) if port_str else 9000
-    ca_url = f"https://{ca_server}:{port}/health"
-
-    console.print(f"[INFO] Checking CA health at {ca_url} ...")
+    ca_base_url = f"https://{ca_server}:{port}"
 
     # Run the health check via helper
     trust_unknown_default = config.get(
-        "ca_server_config.trust_unknow_ca_servers_by_default"
+        "ca_server_config.trust_unknow_certificates_by_default"
     )
-    if not check_ca_health(ca_url, trust_unknown_default):
+    if not check_ca_health(ca_base_url, trust_unknown_default):
         # Either failed or user cancelled
         return
 
-    # Ask for fingerprint
-    fingerprint = qy.text(
-        "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
-        style=DEFAULT_QY_STYLE,
-        validate=SHA256Validator,
-    ).ask()
-    # Check for empty input
-    if not fingerprint or not fingerprint.strip():
-        console.print("[INFO] Operation cancelled by user.")
-        return
+    use_fingerprint = False
+    if config.get("ca_server_config.fetch_root_ca_certificate_automatically"):
+        # Get root certificate info
+        ca_root_info = get_ca_root_info(ca_base_url, trust_unknown_default)
+        if ca_root_info is None:
+            return
+
+        # Display the CA information
+        info_text = (
+            f"[bold]Name:[/bold] {ca_root_info.ca_name}\n"
+            f"[bold]SHA256 Fingerprint:[/bold] {ca_root_info.fingerprint_sha256}"
+        )
+        console.print(
+            Panel.fit(info_text, title="CA Information", border_style="#F08A5D")
+        )
+
+        # Ask the user if they would like to use this fingerprint or enter it manually
+        console.print()
+        use_fingerprint = qy.confirm(
+            message=f"Continue with installation of this root CA? (Abort to enter the fingerprint manually)",
+            style=DEFAULT_QY_STYLE,
+        ).ask()
+
+    if use_fingerprint:
+        fingerprint = ca_root_info.fingerprint_sha256
+    else:
+        # Ask for fingerprint
+        console.print()
+        fingerprint = qy.text(
+            message="Enter root certificate fingerprint (SHA256, 64 hex chars)",
+            validate=SHA256Validator,
+            style=DEFAULT_QY_STYLE,
+        ).ask()
+        # Check for empty input
+        if not fingerprint or not fingerprint.strip():
+            console.print("[INFO] Operation cancelled by user.")
+            return
+    # step-cli expects the fingerprint without colons
     fingerprint = fingerprint.replace(":", "")
+
+    # Check if the certificate is already installed
+    system = platform.system()
+    cert_info = None
+
+    if system == "Windows":
+        cert_info = find_windows_cert_by_sha256(fingerprint)
+    elif system == "Linux":
+        cert_info = find_linux_cert_by_sha256(fingerprint)
+    else:
+        console.print(
+            f"[WARNING] Could not check for existing certificates on unsupported platform: {system}",
+            style="#F9ED69",
+        )
+    # Confirm overwrite
+    if cert_info:
+        console.print(
+            f"[INFO] Certificate with fingerprint '{fingerprint}' already exists in the system trust store.",
+            style="#F08A5D",
+        )
+        console.print()
+        overwrite_certificate = qy.confirm(
+            message="Would you like to overwrite it?",
+            default=False,
+            style=DEFAULT_QY_STYLE,
+        ).ask()
+        if not overwrite_certificate:
+            console.print("[INFO] Operation cancelled by user.")
+            return
 
     # Run step-ca bootstrap
     bootstrap_args = [
         "ca",
         "bootstrap",
         "--ca-url",
-        ca_url,
+        ca_base_url,
         "--fingerprint",
         fingerprint,
         "--install",
+        "--force",
     ]
 
-    console.print(f"[INFO] Running step ca bootstrap on {ca_url} ...")
-    result = execute_step_command(bootstrap_args, STEP_BIN, interactive=True)
+    result = execute_step_command(bootstrap_args, STEP_BIN)
     if isinstance(result, str):
         console.print(
             "[NOTE] You may need to restart your system for the changes to take full effect."
         )
 
 
-def operation2() -> None:
+def operation2():
     """
     Uninstall a root CA certificate from the system trust store.
 
-    Prompts the user for the certificate fingerprint and removes it from
+    Prompts the user for the certificate fingerprint or a search term and removes it from
     the appropriate trust store based on the platform.
 
     Returns:
         None
     """
+
     warning_text = (
         "You are about to remove a root CA certificate from your system.\n"
-        "This is a sensitive operation and can affect system security.\n"
+        "This is a sensitive operation and can affect [bold]system security[/bold].\n"
         "Proceed only if you know what you are doing!"
     )
     console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
-    # Ask for fingerprint of the root certificate
-    fingerprint = qy.text(
-        "Enter the fingerprint of the root certificate (SHA-256, 64 hex chars)",
+    # Ask for the fingerprint or a search term
+    console.print()
+    fingerprint_or_search_term = qy.text(
+        message="Enter root certificate fingerprint (SHA256, 64 hex chars) or search term (* wildcards allowed)",
+        validate=SHA256OrNameValidator,
         style=DEFAULT_QY_STYLE,
-        validate=SHA256Validator,
     ).ask()
+
     # Check for empty input
-    if not fingerprint or not fingerprint.strip():
+    if not fingerprint_or_search_term or not fingerprint_or_search_term.strip():
         console.print("[INFO] Operation cancelled by user.")
         return
-    fingerprint = fingerprint.replace(":", "")
+    fingerprint_or_search_term = fingerprint_or_search_term.replace(":", "").strip()
+
+    # Define if the input is a fingerprint or a search term
+    fingerprint = None
+    search_term = None
+    if re.fullmatch(r"[A-Fa-f0-9]{64}", fingerprint_or_search_term):
+        fingerprint = fingerprint_or_search_term
+    else:
+        search_term = fingerprint_or_search_term
 
     # Determine platform
     system = platform.system()
+    cert_info = None
 
     if system == "Windows":
-        console.print(
-            f"[INFO] Searching for certificate in Windows user ROOT store with fingerprint '{fingerprint}' ..."
-        )
-        cert_info = find_windows_cert_by_sha256(fingerprint)
-        if not cert_info:
-            console.print(
-                f"[ERROR] Certificate with fingerprint '{fingerprint}' not found in Windows ROOT store.",
-                style="#B83B5E",
-            )
-            return
-        thumbprint, cn = cert_info
+        if fingerprint:
+            cert_info = find_windows_cert_by_sha256(fingerprint)
+            if not cert_info:
+                console.print(
+                    f"[ERROR] No certificate with fingerprint '{fingerprint}' was found in the Windows user ROOT trust store.",
+                    style="#B83B5E",
+                )
+                return
 
-        # Confirm the deletion
-        answer = qy.confirm(
-            f"Do you really want to remove the certificate with CN: '{cn}'?",
-            style=DEFAULT_QY_STYLE,
-            default=False,
-        ).ask()
-        if not answer:
+        elif search_term:
+            certs_info = find_windows_certs_by_name(search_term)
+            if not certs_info:
+                console.print(
+                    f"[ERROR] No certificates matching '{search_term}' were found in the Windows user ROOT trust store.",
+                    style="#B83B5E",
+                )
+                return
+
+            cert_info = (
+                choose_cert_from_list(
+                    certs_info,
+                    "Multiple certificates were found. Please select the one to remove:",
+                )
+                if len(certs_info) > 1
+                else certs_info[0]
+            )
+
+        if not cert_info:
             console.print("[INFO] Operation cancelled by user.")
             return
 
-        # Delete certificate via certutil
-        delete_cmd = ["certutil", "-delstore", "-user", "ROOT", thumbprint]
-        result = subprocess.run(delete_cmd, capture_output=True, text=True)
-        if result.returncode == 0:
-            console.print(
-                f"[INFO] Certificate with CN '{cn}' removed from Windows ROOT store."
-            )
-            console.print(
-                "[NOTE] You may need to restart your system for the changes to take full effect."
-            )
-        else:
-            console.print(
-                f"[ERROR] Failed to remove certificate: {result.stderr.strip()}",
-                style="#B83B5E",
-            )
+        thumbprint, cn = cert_info
+        delete_windows_cert_by_sha256(thumbprint, cn)
 
     elif system == "Linux":
-        console.print(
-            f"[INFO] Searching for certificate in Linux trust store with fingerprint '{fingerprint}' ..."
-        )
-        cert_info = find_linux_cert_by_sha256(fingerprint)
-        if not cert_info:
-            console.print(
-                f"[ERROR] Certificate with fingerprint '{fingerprint}' not found in Linux trust store.",
-                style="#B83B5E",
-            )
-            return
-        cert_path, cn = cert_info
+        if fingerprint:
+            cert_info = find_linux_cert_by_sha256(fingerprint)
+            if not cert_info:
+                console.print(
+                    f"[ERROR] No certificate with fingerprint '{fingerprint}' was found in the Linux trust store.",
+                    style="#B83B5E",
+                )
+                return
 
-        # Confirm the deletion
-        answer = qy.confirm(
-            f"Do you really want to remove the certificate with CN: '{cn}'?",
-            style=DEFAULT_QY_STYLE,
-            default=False,
-        ).ask()
-        if not answer:
+        elif search_term:
+            certs_info = find_linux_certs_by_name(search_term)
+            if not certs_info:
+                console.print(
+                    f"[ERROR] No certificates matching '{search_term}' were found in the Linux trust store.",
+                    style="#B83B5E",
+                )
+                return
+
+            cert_info = (
+                choose_cert_from_list(
+                    certs_info,
+                    "Multiple certificates were found. Please select the one to remove:",
+                )
+                if len(certs_info) > 1
+                else certs_info[0]
+            )
+
+        if not cert_info:
             console.print("[INFO] Operation cancelled by user.")
             return
 
-        try:
-            # Check if it's a symlink and remove target first
-            if os.path.islink(cert_path):
-                target_path = os.readlink(cert_path)
-                if os.path.exists(target_path):
-                    subprocess.run(["sudo", "rm", target_path], check=True)
-
-            subprocess.run(["sudo", "rm", cert_path], check=True)
-            subprocess.run(["sudo", "update-ca-certificates", "--fresh"], check=True)
-            console.print(
-                f"[INFO] Certificate with CN '{cn}' removed from Linux trust store."
-            )
-            console.print(
-                "[NOTE] You may need to restart your system for the changes to take full effect."
-            )
-        except subprocess.CalledProcessError as e:
-            console.print(f"[ERROR] Failed to remove certificate: {e}", style="#B83B5E")
+        cert_path, cn = cert_info
+        delete_linux_cert_by_path(cert_path, cn)
 
     else:
-        console.print(f"[ERROR] Unsupported platform: {system}", style="#B83B5E")
+        console.print(
+            f"[ERROR] Unsupported platform for this operation: {system}",
+            style="#B83B5E",
+        )
