@@ -160,6 +160,9 @@ jobs:
     name: Cleanup old beta tags and releases
     needs: build_and_publish
     runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6

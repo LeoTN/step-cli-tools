@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "step-cli-tools"
 version = "0.0.0"
-description = "Step CLI Tools – Prebuilt tools for the smallstep step-cli"
+description = "Prebuilt tools for the smallstep step-cli"
 readme = "README.md"
 authors = ["LeoTN <LeoTN.GitHub@gmx.net>"]
 license = "LICENSE"

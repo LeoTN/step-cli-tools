@@ -8,7 +8,7 @@
 
 This tool aims to **simplify** the use of the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli**.
 
-<img src="assets/readme.gif">
+<img src="https://raw.githubusercontent.com/LeoTN/step-cli-tools/main/assets/readme.gif">
 
 ## 🚀 Getting Started
 
