@@ -110,8 +110,6 @@ jobs:
   start_ci_workflow:
     name: Launch release workflow
     needs: figure_out_release_version
-    permissions:
-      contents: write
     uses: ./.github/workflows/release.yml
     with:
       version: "${{ needs.figure_out_release_version.outputs.beta_version }}"
