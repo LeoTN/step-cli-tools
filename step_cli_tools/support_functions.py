@@ -45,26 +45,29 @@ __all__ = [
 
 
 def check_for_update(
-    current_version: str, include_prerelease: bool = False
+    pkg_name: str, current_pkg_version: str, include_prerelease: bool = False
 ) -> str | None:
     """Check PyPI for newer releases of the package.
 
     Args:
-        current_version: Current version string of the package.
+        pkg_name: Name of the package.
+        current_pkg_version: Current version string of the package.
         include_prerelease: Whether to consider pre-release versions.
 
     Returns:
         The latest version string if a newer version exists, otherwise None.
     """
 
-    pkg = "step-cli-tools"
-    cache = Path.home() / f".{pkg}" / ".cache" / "update_check.json"
+    cache = Path.home() / f".{pkg_name}" / ".cache" / "update_check.json"
     cache.parent.mkdir(parents=True, exist_ok=True)
     now = time.time()
+    current_parsed_version = version.parse(current_pkg_version)
 
+    # Try reading from cache
     if cache.exists():
         try:
-            data = json.loads(cache.read_text())
+            with cache.open("r", encoding="utf-8") as file:
+                data = json.load(file)
             latest_version = data.get("latest_version")
             cache_lifetime = int(
                 config.get("update_config.check_for_updates_cache_lifetime_seconds")
@@ -72,17 +75,25 @@ def check_for_update(
             if (
                 latest_version
                 and now - data.get("time", 0) < cache_lifetime
-                and version.parse(latest_version) > version.parse(current_version)
+                and version.parse(latest_version) > current_parsed_version
             ):
                 return latest_version
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, OSError):
             pass
 
+    # Fetch the latest releases from PyPI when the cache is empty, expired, or the cached version is older than the current version
     try:
-        with urlopen(f"https://pypi.org/pypi/{pkg}/json", timeout=5) as r:
-            data = json.load(r)
-            releases = [r for r, files in data["releases"].items() if files]
+        with urlopen(f"https://pypi.org/pypi/{pkg_name}/json", timeout=5) as response:
+            data = json.load(response)
 
+        # Filter releases (exclude ones with yanked files)
+        releases = [
+            ver
+            for ver, files in data["releases"].items()
+            if files and all(not file.get("yanked", False) for file in files)
+        ]
+
+        # Exclude pre-releases if not requested
         if not include_prerelease:
             releases = [r for r in releases if not version.parse(r).is_prerelease]
 
@@ -90,9 +101,16 @@ def check_for_update(
             return None
 
         latest_version = max(releases, key=version.parse)
-        cache.write_text(json.dumps({"time": now, "latest_version": latest_version}))
+        latest_parsed_version = version.parse(latest_version)
 
-        if version.parse(latest_version) > version.parse(current_version):
+        # Write cache
+        try:
+            with cache.open("w", encoding="utf-8") as file:
+                json.dump({"time": now, "latest_version": latest_version}, file)
+        except OSError:
+            pass  # silently ignore cache write errors
+
+        if latest_parsed_version > current_parsed_version:
             return latest_version
 
     except Exception:

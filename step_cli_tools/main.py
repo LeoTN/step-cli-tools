@@ -39,7 +39,9 @@ def main():
             "update_config.consider_beta_versions_as_available_updates"
         )
         latest_version = check_for_update(
-            pkg_version, include_prerelease=include_prerelease
+            pkg_name=pkg_name,
+            current_pkg_version=pkg_version,
+            include_prerelease=include_prerelease,
         )
     else:
         latest_version = None
