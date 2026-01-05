@@ -19,13 +19,9 @@ __all__ = [
 
 def operation1():
     """
-    Perform the CA bootstrap operation.
+    Install a root certificate in the system trust store.
 
-    Prompts the user for the CA server and fingerprint, then executes
-    the step-ca bootstrap command.
-
-    Returns:
-        None
+    Prompt the user for the CA server and (optionally) root CA fingerprint, then execute the step-ca bootstrap command.
     """
 
     warning_text = (
@@ -153,11 +149,8 @@ def operation2():
     """
     Uninstall a root CA certificate from the system trust store.
 
-    Prompts the user for the certificate fingerprint or a search term and removes it from
+    Prompt the user for the certificate fingerprint or a search term and remove it from
     the appropriate trust store based on the platform.
-
-    Returns:
-        None
     """
 
     warning_text = (

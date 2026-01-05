@@ -1,8 +1,8 @@
 # --- Standard library imports ---
-import os
-import platform
 import logging
 from logging.handlers import RotatingFileHandler
+import os
+import platform
 
 # --- Third-party imports ---
 import questionary
@@ -19,6 +19,7 @@ __all__ = [
     "STEP_BIN",
     "logger",
 ]
+
 
 custom_logging_theme = Theme(
     {
@@ -40,7 +41,7 @@ DEFAULT_QY_STYLE = qy.Style(
     ]
 )
 
-# --- Directories ---
+# --- Directories and files ---
 SCRIPT_HOME_DIR = os.path.expanduser("~/.step-cli-tools")
 SCRIPT_LOGGING_DIR = os.path.normpath(os.path.join(SCRIPT_HOME_DIR, "logs"))
 
@@ -77,9 +78,9 @@ def _setup_logger(
     console: Console = console,
     max_bytes: int = 5_000_000,
     backup_count: int = 5,
-):
+) -> logging.Logger:
     """
-    Sets up a reusable logger with Rich console output
+    Sets up a reusable logger with Rich console output.
 
     Args:
         name: Name of the logger.
@@ -90,7 +91,7 @@ def _setup_logger(
         backup_count: Number of log files to keep.
 
     Returns:
-        logging.Logger
+        A logger instance.
     """
 
     # Ensure log directory exists

@@ -1,17 +1,17 @@
 # --- Standard library imports ---
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 import os
 import platform
 import shutil
 import subprocess
 import sys
-from datetime import datetime
-from pathlib import Path
 
 # --- Third-party imports ---
+from rich.logging import RichHandler
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
-from logging.handlers import RotatingFileHandler
-from rich.logging import RichHandler
 
 # --- Local application imports ---
 from .common import *
@@ -532,7 +532,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
     and reload if valid. If invalid, allow the user to discard or retry.
 
     Args:
-        reset_instead_of_discard: Replace the option "Discard changes" with "Reset config file" if True
+        reset_instead_of_discard: Replace the option "Discard changes" with "Reset config file" if True.
     """
 
     # Backup current config
@@ -590,9 +590,9 @@ def open_in_editor(file_path: str | Path):
     Open the given file in the user's preferred text editor and wait until it is closed.
 
     Respects the environment variable EDITOR if set, otherwise:
-      - On Windows: opens with 'notepad'
-      - On macOS: uses 'open -W -t'
-      - On Linux: tries common editors (nano, vim) or falls back to xdg-open (non-blocking)
+      - On Windows: opens with 'notepad'.
+      - On macOS: uses 'open -W -t'.
+      - On Linux: tries common editors (nano, vim) or falls back to xdg-open (non-blocking).
     """
 
     path = Path(file_path).expanduser().resolve()
@@ -636,6 +636,8 @@ def open_in_editor(file_path: str | Path):
 
 
 def validate_with_feedback():
+    """Validate the config file and apply changes if valid."""
+
     config.load()
     result = config.validate()
     if result is True:
@@ -647,6 +649,8 @@ def validate_with_feedback():
 
 
 def reset_with_feedback():
+    """Reset the config file to its default settings."""
+
     result = config.generate_default(overwrite=True)
     if result is True:
         logger.info("Configuration successfully reset.")

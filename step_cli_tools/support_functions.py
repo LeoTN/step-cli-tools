@@ -2,25 +2,25 @@
 import json
 import os
 import platform
-import shutil
 import re
+import shutil
 import ssl
 import subprocess
 import tarfile
 import tempfile
 import time
-import urllib.error
 import warnings
 from pathlib import Path
 from urllib.request import urlopen
+import urllib.error
 from zipfile import ZipFile
 
 # --- Third-party imports ---
 from cryptography import x509
-from cryptography.x509.oid import NameOID
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.utils import CryptographyDeprecationWarning
+from cryptography.x509.oid import NameOID
 from packaging import version
 
 # --- Local application imports ---
@@ -47,7 +47,8 @@ __all__ = [
 def check_for_update(
     pkg_name: str, current_pkg_version: str, include_prerelease: bool = False
 ) -> str | None:
-    """Check PyPI for newer releases of the package.
+    """
+    Check PyPI for newer releases of the package.
 
     Args:
         pkg_name: Name of the package.
@@ -63,26 +64,33 @@ def check_for_update(
     now = time.time()
     current_parsed_version = version.parse(current_pkg_version)
 
+    logger.debug(locals())
+
     # Try reading from cache
     if cache.exists():
         try:
             with cache.open("r", encoding="utf-8") as file:
                 data = json.load(file)
+
             latest_version = data.get("latest_version")
             cache_lifetime = int(
                 config.get("update_config.check_for_updates_cache_lifetime_seconds")
             )
+
             if (
                 latest_version
                 and now - data.get("time", 0) < cache_lifetime
                 and version.parse(latest_version) > current_parsed_version
             ):
+                logger.debug("Returning newer version from cache")
                 return latest_version
-        except (json.JSONDecodeError, OSError):
-            pass
+
+        except (json.JSONDecodeError, OSError) as e:
+            logger.debug(f"Failed to read update cache: {e}")
 
     # Fetch the latest releases from PyPI when the cache is empty, expired, or the cached version is older than the current version
     try:
+        logger.debug("Fetching release metadata from PyPI")
         with urlopen(f"https://pypi.org/pypi/{pkg_name}/json", timeout=5) as response:
             data = json.load(response)
 
@@ -98,31 +106,42 @@ def check_for_update(
             releases = [r for r in releases if not version.parse(r).is_prerelease]
 
         if not releases:
+            logger.debug("No valid releases found")
             return None
 
         latest_version = max(releases, key=version.parse)
         latest_parsed_version = version.parse(latest_version)
 
+        logger.debug(f"Latest available version on PyPI: {latest_version}")
+
         # Write cache
         try:
             with cache.open("w", encoding="utf-8") as file:
                 json.dump({"time": now, "latest_version": latest_version}, file)
-        except OSError:
-            pass  # silently ignore cache write errors
+        except OSError as e:
+            logger.debug(f"Failed to write update cache: {e}")
 
         if latest_parsed_version > current_parsed_version:
+            logger.debug(f"Update available: {latest_version}")
             return latest_version
 
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Update check failed: {e}")
         return None
 
 
 def install_step_cli(step_bin: str):
-    """Download and install the step CLI binary for the current platform."""
+    """
+    Download and install the step-cli binary for the current platform.
+
+    Args:
+        step_bin: Path to the step binary.
+    """
 
     system = platform.system()
     arch = platform.machine()
     logger.info(f"Detected platform: {system} {arch}")
+    logger.info(f"Target installation path: {step_bin}")
 
     if system == "Windows":
         url = "https://github.com/smallstep/cli/releases/latest/download/step_windows_amd64.zip"
@@ -139,11 +158,14 @@ def install_step_cli(step_bin: str):
 
     tmp_dir = tempfile.mkdtemp()
     tmp_path = os.path.join(tmp_dir, os.path.basename(url))
-    logger.info(f"Downloading step CLI from {url}...")
+    logger.info(f"Downloading step-cli from '{url}'...")
+
     with urlopen(url) as response, open(tmp_path, "wb") as out_file:
         out_file.write(response.read())
 
-    logger.info(f"Extracting {archive_type} archive...")
+    logger.debug(f"Archive downloaded to temporary path: {tmp_path}")
+
+    logger.info(f"Extracting '{archive_type}' archive...")
     if archive_type == "zip":
         with ZipFile(tmp_path, "r") as zip_ref:
             zip_ref.extractall(tmp_dir)
@@ -151,19 +173,21 @@ def install_step_cli(step_bin: str):
         with tarfile.open(tmp_path, "r:gz") as tar_ref:
             tar_ref.extractall(tmp_dir)
 
-    step_bin_name = "step.exe" if system == "Windows" else "step"
+    step_bin_name = os.path.basename(step_bin)
 
     # Search recursively for the binary
     matches = []
-    for root, dirs, files in os.walk(tmp_dir):
+    for root, _, files in os.walk(tmp_dir):
         if step_bin_name in files:
-            matches.append(os.path.join(root, step_bin_name))
+            found_path = os.path.join(root, step_bin_name)
+            matches.append(found_path)
 
     if not matches:
-        logger.error(f"Could not find {step_bin_name} in the extracted archive.")
+        logger.error(f"Could not find '{step_bin_name}' in the extracted archive.")
         return
 
     extracted_path = matches[0]  # Take the first found binary
+    logger.debug(f"Using extracted binary: {extracted_path}")
 
     # Prepare installation path
     binary_dir = os.path.dirname(step_bin)
@@ -171,25 +195,27 @@ def install_step_cli(step_bin: str):
 
     # Delete old binary if exists
     if os.path.exists(step_bin):
+        logger.debug("Removing existing step binary")
         os.remove(step_bin)
 
     shutil.move(extracted_path, step_bin)
     os.chmod(step_bin, 0o755)
 
-    logger.info(f"step CLI installed: {step_bin}")
+    logger.info(f"step-cli installed: {step_bin}")
 
     try:
         result = subprocess.run([step_bin, "version"], capture_output=True, text=True)
         logger.info(f"Installed step version:\n{result.stdout.strip()}")
     except Exception as e:
-        logger.error(f"Failed to run step CLI: {e}")
+        logger.error(f"Failed to run step-cli: {e}")
 
 
-def execute_step_command(args, step_bin: str, interactive: bool = False):
-    """Execute a step CLI command and return output or log errors.
+def execute_step_command(args, step_bin: str, interactive: bool = False) -> str | None:
+    """
+    Execute a step-cli command and return output or log errors.
 
     Args:
-        args: List of command arguments to pass to step CLI.
+        args: List of command arguments to pass to step-cli.
         step_bin: Path to the step binary.
         interactive: If True, run the command interactively without capturing output.
 
@@ -197,25 +223,34 @@ def execute_step_command(args, step_bin: str, interactive: bool = False):
         Command output as a string if successful, otherwise None.
     """
 
+    logger.debug(locals())
+
     if not step_bin or not os.path.exists(step_bin):
-        logger.error("step CLI not found. Please install it first.")
+        logger.error("step-cli not found. Please install it first.")
         return None
 
     try:
         if interactive:
             result = subprocess.run([step_bin] + args)
+            logger.debug(f"step-cli command exit code: {result.returncode}")
+
             if result.returncode != 0:
-                logger.error(f"step command failed with exit code {result.returncode}")
+                logger.error(f"step-cli command exit code: {result.returncode}")
                 return None
+
             return ""
         else:
             result = subprocess.run([step_bin] + args, capture_output=True, text=True)
+            logger.debug(f"step-cli command exit code: {result.returncode}")
+
             if result.returncode != 0:
-                logger.error(f"step command failed: {result.stderr.strip()}")
+                logger.error(f"step-cli command failed: {result.stderr.strip()}")
                 return None
+
             return result.stdout.strip()
+
     except Exception as e:
-        logger.error(f"Failed to execute step command: {e}")
+        logger.error(f"Failed to execute step-cli command: {e}")
         return None
 
 
@@ -227,12 +262,20 @@ def execute_ca_request(
     """
     Perform an HTTPS request to the CA, handling untrusted certificates if needed.
 
+    Args:
+        url: URL to request.
+        trust_unknown_default: If True, trust unverified SSL certificates.
+        timeout: Timeout in seconds.
+
     Returns:
-        Response body as string, or None on failure or user abort
+        Response body as string, or None on failure or user abort.
     """
+
+    logger.debug(locals())
 
     def do_request(context):
         with urlopen(url, context=context, timeout=timeout) as response:
+            logger.debug(f"Received HTTP response status code: {response.status}")
             return response.read().decode("utf-8").strip()
 
     context = (
@@ -247,6 +290,8 @@ def execute_ca_request(
     except urllib.error.URLError as e:
         reason = getattr(e, "reason", None)
 
+        logger.debug(f"URLError: {e}")
+
         if isinstance(reason, ssl.SSLCertVerificationError):
             logger.warning("Server provided an unknown or self-signed certificate.")
 
@@ -260,6 +305,8 @@ def execute_ca_request(
             if not answer:
                 logger.info("Operation cancelled by user.")
                 return None
+
+            logger.debug("Retrying request with unverified SSL context")
 
             try:
                 return do_request(ssl._create_unverified_context())
@@ -282,7 +329,18 @@ def execute_ca_request(
 
 
 def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bool:
-    """Check the health endpoint of a CA server via HTTPS."""
+    """
+    Check the health endpoint of a CA server via HTTPS.
+
+    Args:
+        ca_base_url: Base URL of the CA server, including protocol and port.
+        trust_unknown_default: If True, trust unverified SSL certificates.
+
+    Returns:
+        True if the CA is healthy, False otherwise.
+    """
+
+    logger.debug(locals)
 
     health_url = ca_base_url.rstrip("/") + "/health"
 
@@ -292,7 +350,10 @@ def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bo
     )
 
     if response is None:
+        logger.debug("CA health check failed due to missing response")
         return False
+
+    logger.debug(f"Health endpoint response: {response}")
 
     if "ok" in response.lower():
         logger.info(f"CA at '{ca_base_url}' is healthy.")
@@ -311,12 +372,14 @@ def get_ca_root_info(
     and SHA256 fingerprint.
 
     Args:
-        ca_base_url: Base URL of the CA (e.g. https://my-ca-host:9000)
-        trust_unknown_default: Skip SSL verification immediately if True
+        ca_base_url: Base URL of the CA (e.g. https://my-ca-host:9000).
+        trust_unknown_default: Skip SSL verification immediately if True.
 
     Returns:
-        CARootInfo on success, None on error or user cancel
+        CARootInfo on success, None on error or user cancel.
     """
+
+    logger.debug(locals())
 
     roots_url = ca_base_url.rstrip("/") + "/roots.pem"
 
@@ -326,6 +389,7 @@ def get_ca_root_info(
     )
 
     if pem_bundle is None:
+        logger.debug("Failed to retrieve roots.pem")
         return None
 
     try:
@@ -339,6 +403,7 @@ def get_ca_root_info(
             logger.error("No certificate found in roots.pem")
             return None
 
+        logger.debug("Loading PEM certificate")
         cert = x509.load_pem_x509_certificate(
             match.group(0).encode(),
             default_backend(),
@@ -351,6 +416,8 @@ def get_ca_root_info(
         )
 
         # Extract CA name (CN preferred, always string)
+        logger.debug(f"Computed SHA256 fingerprint: {fingerprint}")
+
         try:
             cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
             ca_name = (
@@ -389,6 +456,8 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
         Returns None if no matching certificate is found or if the query fails.
     """
 
+    logger.debug(f"Starting Windows certificate search by SHA256: {sha256_fingerprint}")
+
     ps_cmd = r"""
     $sha = [System.Security.Cryptography.SHA256]::Create()
     $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "Root","CurrentUser"
@@ -413,20 +482,26 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
         errors="replace",
     )
 
+    logger.debug(f"PowerShell exit code: {result.returncode}")
+
     if result.returncode != 0:
         logger.error(f"Failed to query certificates: {result.stderr.strip()}")
         return None
 
+    normalized_fp = sha256_fingerprint.lower().replace(":", "")
+
     for line in result.stdout.strip().splitlines():
         try:
             obj = json.loads(line)
-            if obj["Sha256"].strip().lower() == sha256_fingerprint.lower().replace(
-                ":", ""
-            ):
+            logger.debug(f"Processing certificate subject: {obj.get('Subject')}")
+            if obj["Sha256"].strip().lower() == normalized_fp:
+                logger.debug("Matching certificate found")
                 return (obj["Thumbprint"].strip(), obj["Subject"].strip())
         except (ValueError, KeyError, json.JSONDecodeError):
+            logger.debug("Skipping invalid or malformed certificate entry")
             continue
 
+    logger.debug("No matching Windows certificate found")
     return None
 
 
@@ -437,11 +512,13 @@ def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     each component like CN=..., OU=..., O=..., C=...
 
     Args:
-        name_pattern: Name or partial name to search (wildcard * allowed)
+        name_pattern: Name or partial name to search (wildcard * allowed).
 
     Returns:
-        List of tuples (thumbprint, subject) for all matching certificates
+        List of tuples (thumbprint, subject) for all matching certificates.
     """
+
+    logger.debug(f"Starting Windows certificate search by name pattern: {name_pattern}")
 
     ps_cmd = r"""
     $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "Root","CurrentUser"
@@ -463,6 +540,8 @@ def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
         errors="replace",
     )
 
+    logger.debug(f"PowerShell exit code: {result.returncode}")
+
     if result.returncode != 0:
         logger.error(f"Failed to query certificates: {result.stderr.strip()}")
         return []
@@ -479,18 +558,23 @@ def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
             thumbprint = obj["Thumbprint"].strip()
             subject = obj["Subject"].strip()
 
+            logger.debug(f"Evaluating certificate subject: {subject}")
+
             components = [comp.strip() for comp in subject.split(",")]
             for comp in components:
                 # Delete leading CN=, O=, OU=, etc.
                 match = re.match(r"^(?:CN|O|OU|C|DC)=(.*)$", comp, re.IGNORECASE)
                 value = match.group(1).strip() if match else comp
                 if pattern_re.match(value):
+                    logger.debug("Name pattern matched certificate")
                     matches.append((thumbprint, subject))
-                    break  # Search the next certificate if a match is found
+                    break
 
         except (ValueError, KeyError, json.JSONDecodeError):
+            logger.debug("Skipping invalid or malformed certificate entry")
             continue
 
+    logger.debug(f"Total matching Windows certificates found: {len(matches)}")
     return matches
 
 
@@ -500,7 +584,7 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
 
     Args:
         sha256_fingerprint: SHA256 fingerprint of the certificate to search for.
-                            Can include colons or be in uppercase/lowercase.
+                            Can include colons and may be in uppercase/lowercase.
 
     Returns:
         A tuple (path, subject) of the matching certificate if found:
@@ -508,6 +592,8 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
             - subject: Full subject string of the certificate.
         Returns None if no matching certificate is found or if the trust store directory is missing.
     """
+
+    logger.debug(f"Starting Linux certificate search by SHA256: {sha256_fingerprint}")
 
     cert_dir = "/etc/ssl/certs"
     fingerprint = sha256_fingerprint.lower().replace(":", "")
@@ -524,6 +610,7 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
             path = os.path.join(cert_dir, cert_file)
             if os.path.isfile(path):
                 try:
+                    logger.debug(f"Reading certificate file: {path}")
                     with open(path, "rb") as f:
                         cert_data = f.read()
                         try:
@@ -538,10 +625,13 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
                             )
                         fp = cert.fingerprint(hashes.SHA256()).hex()
                         if fp.lower() == fingerprint:
+                            logger.debug("Matching Linux certificate found")
                             return (path, cert.subject.rfc4514_string())
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to process certificate file '{path}': {e}")
                     continue
 
+    logger.debug("No matching Linux certificate found")
     return None
 
 
@@ -553,11 +643,13 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     Duplicates of the same certificate (e.g. from different files / symlinks) are ignored.
 
     Args:
-        name_pattern: Name or partial name to search (wildcard * allowed)
+        name_pattern: Name or partial name to search (wildcard * allowed).
 
     Returns:
-        List of tuples (path, subject) for all matching certificates
+        List of tuples (path, subject) for all matching certificates.
     """
+
+    logger.debug(f"Starting Linux certificate search by name pattern: {name_pattern}")
 
     cert_dir = "/etc/ssl/certs"
     if not os.path.isdir(cert_dir):
@@ -584,8 +676,11 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
 
                 # Skip duplicate certificates pointing to the same real file
                 if real_path in seen_real_paths:
+                    logger.debug(f"Skipping duplicate certificate path: {real_path}")
                     continue
                 seen_real_paths.add(real_path)
+
+                logger.debug(f"Processing certificate file: {path}")
 
                 with open(path, "rb") as f:
                     cert_data = f.read()
@@ -608,12 +703,15 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
                         )
                         value = match.group(1).strip() if match else comp
                         if pattern_re.match(value):
+                            logger.debug("Name pattern matched certificate")
                             matches.append((path, subject_str))
                             break
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to process certificate file '{path}': {e}")
                 continue
 
+    logger.debug(f"Total matching Linux certificates found: {len(matches)}")
     return matches
 
 
@@ -625,6 +723,8 @@ def delete_windows_cert_by_sha256(thumbprint: str, cn: str):
         thumbprint: Thumbprint of the certificate to delete.
         cn: Common Name (CN) of the certificate for display purposes.
     """
+
+    logger.debug(f"Preparing to delete Windows certificate: {cn} ({thumbprint})")
 
     console.print()
     answer = qy.confirm(
@@ -643,6 +743,9 @@ def delete_windows_cert_by_sha256(thumbprint: str, cn: str):
 
     delete_cmd = ["certutil", "-delstore", "-user", "ROOT", thumbprint]
     result = subprocess.run(delete_cmd, capture_output=True, text=True)
+
+    logger.debug(f"certutil exit code: {result.returncode}")
+
     if result.returncode == 0:
         logger.info(f"Certificate '{cn}' removed from Windows ROOT store.")
         logger.info(
@@ -660,6 +763,8 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
         cert_path: Full path to the certificate symlink in /etc/ssl/certs.
         cn: Common Name (CN) of the certificate for display purposes.
     """
+
+    logger.debug(f"Preparing to delete Linux certificate: {cn} ({cert_path})")
 
     console.print()
     answer = qy.confirm(
@@ -680,6 +785,7 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
         # Handle symlink target
         if cert_path_obj.is_symlink():
             target_path = cert_path_obj.resolve()
+            logger.debug(f"Resolved symlink target: {target_path}")
 
             if target_path.is_relative_to(source_dir):
                 subprocess.run(["sudo", "rm", str(target_path)], check=True)
@@ -696,6 +802,7 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
                 f"Certificate path '{cert_path_obj}' is outside {cert_dir}, skipping deletion."
             )
 
+        logger.debug("Updating Linux trust store")
         subprocess.run(["sudo", "update-ca-certificates", "--fresh"], check=True)
 
         logger.info(f"Certificate '{cn}' removed from Linux trust store.")
@@ -714,14 +821,17 @@ def choose_cert_from_list(
     Presents an alphabetically sorted list of certificates to the user and returns the chosen tuple (fingerprint/path, subject).
 
     Args:
-        certs: List of tuples (id, subject) to choose from
-        message: message text for the questionary select
+        certs: List of tuples (id, subject) to choose from.
+        message: message text for the questionary select.
 
     Returns:
-        The selected tuple or None if user cancels
+        The selected tuple or None if user cancels.
     """
 
+    logger.debug(f"Presenting certificate selection list with {len(certs)} entries")
+
     if not certs:
+        logger.debug("No certificates available for selection")
         return None
 
     # Sort certificates alphabetically by subject (case-insensitive)
@@ -740,11 +850,16 @@ def choose_cert_from_list(
     ).ask()
 
     if selected_subject is None:
+        logger.debug("User cancelled certificate selection")
         return None
 
     # Return the full tuple matching the selected subject
     for cert in sorted_certs:
         if cert[1] == selected_subject:
+            logger.debug(
+                f"User selected a certificate with subject: {selected_subject}"
+            )
             return cert
 
+    logger.debug("Selected certificate not found in internal list")
     return None
