@@ -28,7 +28,6 @@ def main():
 
     # Verify and load the config file
     check_and_repair_config_file()
-    config.load()
 
     # Check for updates and when running a release version (not 0.0.0)
     if (

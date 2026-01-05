@@ -10,6 +10,8 @@ from pathlib import Path
 # --- Third-party imports ---
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
+from logging.handlers import RotatingFileHandler
+from rich.logging import RichHandler
 
 # --- Local application imports ---
 from .common import *
@@ -114,6 +116,18 @@ class Configuration:
                 f"[ERROR] Failed to generate default configuration: {e}",
                 style="#B83B5E",
             )
+
+    def apply(self):
+        """Apply current configuration data to relevant parts of the application."""
+
+        # Apply the logging configuration
+        for handler in logger.handlers:
+            # Console handler level
+            if isinstance(handler, RichHandler):
+                handler.setLevel((self.get("logging_config.log_level_console")))
+            # File handler level
+            if isinstance(handler, RotatingFileHandler):
+                handler.setLevel((self.get("logging_config.log_level_file")))
 
     def get(self, key: str):
         """Retrieve a setting value using dotted key path; fallback to default if missing.
@@ -479,6 +493,7 @@ def check_and_repair_config_file():
             is_valid = False
 
         if is_valid:
+            config.apply()
             break  # valid -> exit
 
         if not automatic_repair_failed:
@@ -577,6 +592,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
             is_valid = False
 
         if is_valid:
+            config.apply()
             console.print("[INFO] Configuration saved successfully.", style="green")
             break  # exit loop if valid
 
@@ -600,6 +616,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
             # Restore backup
             shutil.copy(backup_path, config.file_location)
             config.load()
+            config.apply()
             console.print("[INFO] Changes discarded.")
             break
         # else: loop continues for "Edit again"
@@ -661,6 +678,7 @@ def validate_with_feedback():
     config.load()
     result = config.validate()
     if result is True:
+        config.apply()
         console.print("[INFO] Configuration is valid.", style="green")
     else:
         console.print("[ERROR] Configuration is invalid.", style="#B83B5E")
@@ -680,7 +698,6 @@ def reset_with_feedback():
 config_file_location = os.path.join(SCRIPT_HOME_DIR, "config.yml")
 config_schema = {
     "update_config": {
-        "comment": "Settings for controlling the update check",
         "check_for_updates_at_launch": {
             "type": bool,
             "default": True,
@@ -703,7 +720,6 @@ config_schema = {
         },
     },
     "ca_server_config": {
-        "comment": "Settings that affect the CA server behavior",
         "default_ca_server": {
             "type": str,
             "default": "",
@@ -721,6 +737,22 @@ config_schema = {
             "default": True,
             "validator": bool_validator,
             "comment": "If false, the root certificate won't be fetched automatically from the CA server. You will need to enter the fingerprint manually when installing a root CA certificate",
+        },
+    },
+    "logging_config": {
+        "log_level_console": {
+            "type": str,
+            "default": "INFO",
+            "allowed": ["DEBUG", "INFO", "WARNING", "ERROR"],
+            "validator": str_allowed_validator,
+            "comment": "The logging level to be used for console output",
+        },
+        "log_level_file": {
+            "type": str,
+            "default": "DEBUG",
+            "allowed": ["DEBUG", "INFO", "WARNING", "ERROR"],
+            "validator": str_allowed_validator,
+            "comment": "The logging level to be used for log files",
         },
     },
 }
