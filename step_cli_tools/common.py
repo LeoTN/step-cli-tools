@@ -108,14 +108,16 @@ def _setup_logger(
             log_file, maxBytes=max_bytes, backupCount=backup_count
         )
         file_handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)-8s %(message)s")
+            logging.Formatter(
+                "%(asctime)s %(levelname)-8s [%(funcName)-30s] %(message)s"
+            )
         )
         file_handler.setLevel(level)
         logger.addHandler(file_handler)
 
         # Rich console handler (colorful)
         console_handler = RichHandler(
-            console=console, rich_tracebacks=True, show_time=False
+            console=console, rich_tracebacks=True, show_time=False, show_path=False
         )
         console_handler.setLevel(level)
         logger.addHandler(console_handler)

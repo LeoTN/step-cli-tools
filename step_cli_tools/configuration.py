@@ -52,7 +52,7 @@ class Configuration:
             try:
                 loaded = yaml.load(self.file_location.read_text()) or {}
             except Exception as e:
-                console.print(f"[WARNING] Failed to load config: {e}", style="#F9ED69")
+                logger.warning(f"Failed to load config: {e}")
                 loaded = {}
         else:
             loaded = {}
@@ -65,10 +65,7 @@ class Configuration:
             with self.file_location.open("w", encoding="utf-8") as f:
                 yaml.dump(self._data, f)
         except (OSError, IOError) as e:
-            console.print(
-                f"[ERROR] Could not save settings to '{self.file_location}': {e}",
-                style="#B83B5E",
-            )
+            logger.error(f"Could not save settings to '{self.file_location}': {e}")
 
     def generate_default(self, overwrite: bool = False):
         """
@@ -79,9 +76,8 @@ class Configuration:
         """
         try:
             if self.file_location.exists() and not overwrite:
-                console.print(
-                    f"[WARNING] Config file already exists: {self.file_location}. Use overwrite=True to replace it.",
-                    style="#F9ED69",
+                logger.warning(
+                    f"Config file already exists: {self.file_location}. Use overwrite=True to replace it."
                 )
                 return
 
@@ -92,7 +88,7 @@ class Configuration:
                     f"{self.file_location.stem}_backup_{timestamp}{self.file_location.suffix}"
                 )
                 shutil.copy2(self.file_location, backup_path)
-                console.print(f"[INFO] Created backup before overwrite: {backup_path}")
+                logger.info(f"Created backup before overwrite: {backup_path}")
 
             # This is a bit akward but the file is technically repaired without keeping any data.
             default_data = self._build_commented_data(
@@ -103,19 +99,15 @@ class Configuration:
             with self.file_location.open("w", encoding="utf-8") as f:
                 yaml.dump(default_data, f)
 
-            console.print(
-                f"[INFO] Default configuration file was generated successfully: {self.file_location}",
-                style="green",
+            logger.info(
+                f"Default configuration file was generated successfully: {self.file_location}"
             )
 
             # Load the data into memory so it's ready for use
             self._data = default_data
 
         except Exception as e:
-            console.print(
-                f"[ERROR] Failed to generate default configuration: {e}",
-                style="#B83B5E",
-            )
+            logger.error(f"Failed to generate default configuration: {e}")
 
     def apply(self):
         """Apply current configuration data to relevant parts of the application."""
@@ -142,9 +134,8 @@ class Configuration:
         data = self._data
         for part in parts:
             if not isinstance(data, dict) or part not in data:
-                console.print(
-                    f"[WARNING] Failed to extract the value for '{key}' from the configuration file.",
-                    style="#F9ED69",
+                logger.warning(
+                    f"Failed to extract the value for '{key}' from the configuration file."
                 )
                 return self._nested_get_default(parts)
             data = data[part]
@@ -163,9 +154,8 @@ class Configuration:
         # Check if key exists in schema
         schema_meta = self._nested_get_meta(parts)
         if not schema_meta:
-            console.print(
-                f"[WARNING] Key '{key}' does not exist in the config schema. Value '{value}' will still be set.",
-                style="#F9ED69",
+            logger.warning(
+                f"Key '{key}' does not exist in the config schema. Value '{value}' will still be set."
             )
 
         # Navigate or create nested dictionaries
@@ -180,9 +170,8 @@ class Configuration:
             try:
                 value = expected_type(value)
             except Exception:
-                console.print(
-                    f"[WARNING] Failed to cast value '{value}' to {expected_type.__name__} for key '{key}'",
-                    style="#F9ED69",
+                logger.warning(
+                    f"Failed to cast value '{value}' to {expected_type.__name__} for key '{key}'"
                 )
 
         data[parts[-1]] = value
@@ -211,7 +200,7 @@ class Configuration:
             parts = key.split(".")
             meta = self._nested_get_meta(parts)
             if not meta:
-                console.print(f"[WARNING] No schema entry for '{key}'", style="#F9ED69")
+                logger.warning(f"No schema entry for '{key}'")
                 return False
 
             validator = meta.get("validator")
@@ -223,33 +212,25 @@ class Configuration:
             value = self.get(key)
             try:
                 if not callable(validator):
-                    console.print(
-                        f"[WARNING] Validator for '{key}' is not callable: {validator!r}",
-                        style="#F9ED69",
+                    logger.warning(
+                        f"Validator for '{key}' is not callable: {validator!r}"
                     )
                     return False
 
                 result = validator(value)
 
             except Exception as e:
-                console.print(
-                    f"[ERROR] Validator for '{key}' raised an exception: {e}",
-                    style="#B83B5E",
-                )
+                logger.error(f"Validator for '{key}' raised an exception: {e}")
                 return False
 
             if result is None:
                 return True
             if isinstance(result, str):
-                console.print(
-                    f"[WARNING] Validation failed for '{key}': {result}",
-                    style="#F9ED69",
-                )
+                logger.warning(f"Validation failed for '{key}': {result}")
                 return False
 
-            console.print(
-                f"[ERROR] Validator for '{key}' returned unsupported value: {result!r}",
-                style="#B83B5E",
+            logger.error(
+                f"Validator for '{key}' returned unsupported value: {result!r}"
             )
             return False
 
@@ -295,9 +276,8 @@ class Configuration:
             if "type" not in meta:
                 sub_data = data.get(k, {})
                 if not isinstance(sub_data, dict):
-                    console.print(
-                        f"[WARNING] Expected dict at '{full_key}', got {type(sub_data).__name__}",
-                        style="#F9ED69",
+                    logger.warning(
+                        f"Expected dict at '{full_key}', got {type(sub_data).__name__}"
                     )
                     ok = False
                 elif not self._validate_recursive(sub_data, meta, full_key):
@@ -312,32 +292,24 @@ class Configuration:
                     value = data.get(k, meta.get("default"))
 
                     if not callable(validator):
-                        console.print(
-                            f"[WARNING] Validator for '{full_key}' is not callable: {validator!r}",
-                            style="#F9ED69",
+                        logger.warning(
+                            f"Validator for '{full_key}' is not callable: {validator!r}"
                         )
                         ok = False
                         continue
 
                     result = validator(value)
                     if isinstance(result, str):
-                        console.print(
-                            f"[WARNING] Validation failed for '{full_key}': {result}",
-                            style="#F9ED69",
-                        )
+                        logger.warning(f"Validation failed for '{full_key}': {result}")
                         ok = False
                     elif result is not None:
-                        console.print(
-                            f"[ERROR] Validator for '{full_key}' returned unsupported type: {result!r}",
-                            style="#B83B5E",
+                        logger.error(
+                            f"Validator for '{full_key}' returned unsupported type: {result!r}"
                         )
                         ok = False
 
                 except Exception as e:
-                    console.print(
-                        f"[ERROR] Validator for '{full_key}' raised: {e}",
-                        style="#B83B5E",
-                    )
+                    logger.error(f"Validator for '{full_key}' raised: {e}")
                     ok = False
 
         return ok
@@ -356,10 +328,7 @@ class Configuration:
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
-                console.print(
-                    f"[WARNING] Missing default for key '{'.'.join(keys)}'",
-                    style="#F9ED69",
-                )
+                logger.warning(f"Missing default for key '{'.'.join(keys)}'")
                 return None
             data = data[k]
             if isinstance(data, dict) and "default" in data:
@@ -420,9 +389,7 @@ class Configuration:
                 if node[key] is None:
                     if repair_damaged_keys:
                         if not suppress_repair_messages:
-                            console.print(
-                                f"[INFO] Repairing key '{key}' from config schema."
-                            )
+                            logger.info(f"Repairing key '{key}' from config schema.")
                         node[key] = meta.get("default")
                     else:
                         continue
@@ -478,7 +445,7 @@ def check_and_repair_config_file():
     # Generate default config if missing
     if not os.path.exists(config.file_location):
         config.generate_default()
-        console.print("[INFO] A default config file has been generated.")
+        logger.info("A default config file has been generated.")
 
     automatic_repair_failed = False
 
@@ -487,9 +454,7 @@ def check_and_repair_config_file():
             config.load()
             is_valid = config.validate()
         except Exception as e:
-            console.print(
-                f"[ERROR] Config validation raised an exception: {e}", style="#B83B5E"
-            )
+            logger.error(f"Config validation raised an exception: {e}")
             is_valid = False
 
         if is_valid:
@@ -497,7 +462,7 @@ def check_and_repair_config_file():
             break  # valid -> exit
 
         if not automatic_repair_failed:
-            console.print("[INFO] Attempting automatic config file repair...")
+            logger.info("Attempting automatic config file repair...")
             config.repair()
             automatic_repair_failed = True
             continue  # check the repaired file again
@@ -586,18 +551,16 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
             config.load()
             is_valid = config.validate()
         except Exception as e:
-            console.print(
-                f"[ERROR] Validation raised an exception: {e}", style="#B83B5E"
-            )
+            logger.error(f"Validation raised an exception: {e}")
             is_valid = False
 
         if is_valid:
             config.apply()
-            console.print("[INFO] Configuration saved successfully.", style="green")
+            logger.info("Configuration saved successfully.")
             break  # exit loop if valid
 
         # If validation failed
-        console.print("[ERROR] Configuration is invalid.", style="#B83B5E")
+        logger.error("Configuration is invalid.")
         console.print()
         selected_action = qy.select(
             message="Choose an action:",
@@ -617,7 +580,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
             shutil.copy(backup_path, config.file_location)
             config.load()
             config.apply()
-            console.print("[INFO] Changes discarded.")
+            logger.info("Changes discarded.")
             break
         # else: loop continues for "Edit again"
 
@@ -668,10 +631,8 @@ def open_in_editor(file_path: str | Path):
                 return
         # fallback: GUI open (non-blocking)
         subprocess.Popen(["xdg-open", str(path)])
-        console.print(
-            "[INFO] File opened in default GUI editor. Please close it manually."
-        )
-        input("[INFO] Press Enter here when you're done editing...")
+        logger.info("File opened in default GUI editor. Please close it manually.")
+        input("Press Enter here when you're done editing...")
 
 
 def validate_with_feedback():
@@ -679,18 +640,18 @@ def validate_with_feedback():
     result = config.validate()
     if result is True:
         config.apply()
-        console.print("[INFO] Configuration is valid.", style="green")
+        logger.info("Configuration is valid.")
     else:
-        console.print("[ERROR] Configuration is invalid.", style="#B83B5E")
+        logger.error("Configuration is invalid.")
     return result
 
 
 def reset_with_feedback():
     result = config.generate_default(overwrite=True)
     if result is True:
-        console.print("[INFO] Configuration successfully reset.", style="green")
+        logger.info("Configuration successfully reset.")
     else:
-        console.print("[ERROR] Configuration reset failed.", style="#B83B5E")
+        logger.error("Configuration reset failed.")
     return result
 
 
