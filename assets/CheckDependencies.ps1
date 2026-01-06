@@ -118,4 +118,3 @@ else {
 }
 
 Write-Host "`n[INFO] Done." -ForegroundColor Cyan
-pause

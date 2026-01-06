@@ -732,6 +732,16 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
 
     logger.debug(f"Preparing to delete Windows certificate: {cn} ({thumbprint})")
 
+    console.print()
+    answer = qy.confirm(
+        message=f"Do you really want to remove the certificate: '{cn}'?",
+        default=False,
+        style=DEFAULT_QY_STYLE,
+    ).ask()
+    if not answer:
+        logger.info("Operation cancelled by user.")
+        return
+
     # Validate thumbprint format (SHA-1, 40 hex chars)
     if not re.fullmatch(r"[A-Fa-f0-9]{40}", thumbprint):
         logger.error(f"Invalid thumbprint format: {thumbprint}")

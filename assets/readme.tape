@@ -1,6 +1,6 @@
 Output readme.gif
 
-Require sct.exe
+Require sct
 
 Set Shell powershell
 Set Width 1500
