@@ -21,6 +21,7 @@ classifiers = [
 ]
 
 [project.urls]
+homepage = "https://github.com/LeoTN/step-cli-tools#readme"
 repository = "https://github.com/LeoTN/step-cli-tools"
 "Bug Tracker" = "https://github.com/LeoTN/step-cli-tools/issues"
 

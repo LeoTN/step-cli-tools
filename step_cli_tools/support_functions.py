@@ -341,7 +341,7 @@ def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bo
         True if the CA is healthy, False otherwise.
     """
 
-    logger.debug(locals)
+    logger.debug(locals())
 
     health_url = ca_base_url.rstrip("/") + "/health"
 
@@ -727,10 +727,10 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
     Args:
         thumbprint: Thumbprint of the certificate to delete.
         cn: Common Name (CN) of the certificate for display purposes.
-        elevated: Whether to execute the PowerShell command with administrative privileges.
+        elevated: Whether to execute the PowerShell command with elevated privileges.
     """
 
-    logger.debug(f"Preparing to delete Windows certificate: {cn} ({thumbprint})")
+    logger.debug(locals())
 
     console.print()
     answer = qy.confirm(
@@ -812,11 +812,11 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
         logger.warning(f"Certificate '{cn}' not found.")
         return
 
-    # Access denied, offer to retry with administrative privileges
+    # Access denied, offer to retry with elevated privileges
     if result.returncode == 2:
         logger.warning(f"Access denied to remove certificate '{cn}'.")
         retry_with_admin_privileges = qy.confirm(
-            message="Retry with administrative privileges?", style=DEFAULT_QY_STYLE
+            message="Retry with elevated privileges?", style=DEFAULT_QY_STYLE
         ).ask()
         if not retry_with_admin_privileges:
             logger.info("Operation cancelled by user.")
@@ -832,16 +832,17 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
     logger.error(f"Failed to remove certificate with thumbprint '{thumbprint}'")
 
 
-def delete_linux_cert_by_path(cert_path: str, cn: str):
+def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
     """
     Delete a certificate from the Linux system trust store.
 
     Args:
         cert_path: Full path to the certificate symlink in /etc/ssl/certs.
         cn: Common Name (CN) of the certificate for display purposes.
+        elevated: Whether to execute commands with elevated privileges.
     """
 
-    logger.debug(f"Preparing to delete Linux certificate: {cn} ({cert_path})")
+    logger.debug(locals())
 
     console.print()
     answer = qy.confirm(
@@ -853,19 +854,27 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
         logger.info("Operation cancelled by user.")
         return
 
+    cert_dir = Path("/etc/ssl/certs").resolve()
+    source_dir = Path("/usr/local/share/ca-certificates").resolve()
+    cert_path_obj = Path(cert_path)
+
+    # Helper to optionally prefix sudo
+    def cmd(args: list[str]) -> list[str]:
+        return ["sudo", *args] if elevated else args
+
     try:
-        cert_dir = Path("/etc/ssl/certs").resolve()
-        source_dir = Path("/usr/local/share/ca-certificates").resolve()
-
-        cert_path_obj = Path(cert_path)
-
         # Handle symlink target
         if cert_path_obj.is_symlink():
             target_path = cert_path_obj.resolve()
             logger.debug(f"Resolved symlink target: {target_path}")
 
             if target_path.is_relative_to(source_dir):
-                subprocess.run(["sudo", "rm", str(target_path)], check=True)
+                subprocess.run(
+                    cmd(["rm", str(target_path)]),
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
             else:
                 logger.warning(
                     f"Symlink target '{target_path}' is outside {source_dir}, skipping deletion."
@@ -873,14 +882,24 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
 
         # Delete the symlink itself if it lives inside /etc/ssl/certs
         if cert_path_obj.parent.resolve().is_relative_to(cert_dir):
-            subprocess.run(["sudo", "rm", str(cert_path_obj)], check=True)
+            subprocess.run(
+                cmd(["rm", str(cert_path_obj)]),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
         else:
             logger.warning(
                 f"Certificate path '{cert_path_obj}' is outside {cert_dir}, skipping deletion."
             )
 
         logger.debug("Updating Linux trust store")
-        subprocess.run(["sudo", "update-ca-certificates", "--fresh"], check=True)
+        subprocess.run(
+            cmd(["update-ca-certificates", "--fresh"]),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
         logger.info(f"Certificate '{cn}' removed from Linux trust store.")
         logger.info(
@@ -888,7 +907,28 @@ def delete_linux_cert_by_path(cert_path: str, cn: str):
         )
 
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to remove certificate: {e}")
+        logger.debug(f"Command stdout: {e.stdout}")
+        logger.debug(f"Command stderr: {e.stderr}")
+
+        # Likely permission issue when not elevated
+        if not elevated:
+            logger.warning(
+                f"Could not remove certificate '{cn}'. This may be a permission issue."
+            )
+
+            retry = qy.confirm(
+                message="Retry with elevated privileges?",
+                default=True,
+                style=DEFAULT_QY_STYLE,
+            ).ask()
+            if not retry:
+                logger.info("Operation cancelled by user.")
+                return
+
+            delete_linux_cert_by_path(cert_path, cn, elevated=True)
+            return
+
+        logger.error(f"Failed to remove certificate '{cn}'.")
 
 
 def choose_cert_from_list(
