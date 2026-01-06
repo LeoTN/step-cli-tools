@@ -171,7 +171,7 @@ class Configuration:
                 value = expected_type(value)
             except Exception:
                 logger.warning(
-                    f"Failed to cast value '{value}' to {expected_type.__name__} for key '{key}'"
+                    f"Failed to cast value '{value}' to {expected_type.__name__} for key '{key}'."
                 )
 
         data[parts[-1]] = value
@@ -200,7 +200,7 @@ class Configuration:
             parts = key.split(".")
             meta = self._nested_get_meta(parts)
             if not meta:
-                logger.warning(f"No schema entry for '{key}'")
+                logger.warning(f"No schema entry for '{key}'.")
                 return False
 
             validator = meta.get("validator")
@@ -277,7 +277,7 @@ class Configuration:
                 sub_data = data.get(k, {})
                 if not isinstance(sub_data, dict):
                     logger.warning(
-                        f"Expected dict at '{full_key}', got {type(sub_data).__name__}"
+                        f"Expected dict at '{full_key}', got {type(sub_data).__name__}."
                     )
                     ok = False
                 elif not self._validate_recursive(sub_data, meta, full_key):
@@ -328,7 +328,7 @@ class Configuration:
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
-                logger.warning(f"Missing default for key '{'.'.join(keys)}'")
+                logger.warning(f"Missing default for key '{'.'.join(keys)}'.")
                 return None
             data = data[k]
             if isinstance(data, dict) and "default" in data:

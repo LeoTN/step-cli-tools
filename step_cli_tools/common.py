@@ -106,7 +106,7 @@ def _setup_logger(
     if not logger.handlers:
         # Rotating file handler (plain text)
         file_handler = RotatingFileHandler(
-            log_file, maxBytes=max_bytes, backupCount=backup_count
+            log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
         )
         file_handler.setFormatter(
             logging.Formatter(

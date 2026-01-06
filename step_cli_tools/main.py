@@ -35,7 +35,7 @@ def main():
             handler.setLevel("CRITICAL")
     # Mark the log starting point
     bannerText = f"# {pkg_name} - Version {pkg_version} #"
-    textArray = ["", "", "", "#" * len(bannerText), bannerText, "#" * len(bannerText)]
+    textArray = ["", "#" * len(bannerText), bannerText, "#" * len(bannerText), ""]
     for text in textArray:
         logger.info(text)
     # Unmute console logging

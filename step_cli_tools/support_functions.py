@@ -1,4 +1,5 @@
 # --- Standard library imports ---
+import base64
 import json
 import os
 import platform
@@ -38,7 +39,7 @@ __all__ = [
     "find_windows_certs_by_name",
     "find_linux_cert_by_sha256",
     "find_linux_certs_by_name",
-    "delete_windows_cert_by_sha256",
+    "delete_windows_cert_by_thumbprint",
     "delete_linux_cert_by_path",
     "choose_cert_from_list",
 ]
@@ -482,6 +483,8 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
         errors="replace",
     )
 
+    logger.debug(f"PowerShell output: {result.stdout}")
+    logger.debug(f"PowerShell stderr: {result.stderr}")
     logger.debug(f"PowerShell exit code: {result.returncode}")
 
     if result.returncode != 0:
@@ -540,6 +543,8 @@ def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
         errors="replace",
     )
 
+    logger.debug(f"PowerShell output: {result.stdout}")
+    logger.debug(f"PowerShell stderr: {result.stderr}")
     logger.debug(f"PowerShell exit code: {result.returncode}")
 
     if result.returncode != 0:
@@ -715,44 +720,106 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     return matches
 
 
-def delete_windows_cert_by_sha256(thumbprint: str, cn: str):
+def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool = False):
     """
-    Delete a certificate from the Windows user ROOT store using certutil.
+    Delete a certificate from the Windows user ROOT store using PowerShell.
 
     Args:
         thumbprint: Thumbprint of the certificate to delete.
         cn: Common Name (CN) of the certificate for display purposes.
+        elevated: Whether to execute the PowerShell command with administrative privileges.
     """
 
     logger.debug(f"Preparing to delete Windows certificate: {cn} ({thumbprint})")
 
-    console.print()
-    answer = qy.confirm(
-        message=f"Do you really want to remove the certificate: '{cn}'?",
-        default=False,
-        style=DEFAULT_QY_STYLE,
-    ).ask()
-    if not answer:
-        logger.info("Operation cancelled by user.")
-        return
-
-    # Validate thumbprint format
+    # Validate thumbprint format (SHA-1, 40 hex chars)
     if not re.fullmatch(r"[A-Fa-f0-9]{40}", thumbprint):
         logger.error(f"Invalid thumbprint format: {thumbprint}")
         return
 
-    delete_cmd = ["certutil", "-delstore", "-user", "ROOT", thumbprint]
-    result = subprocess.run(delete_cmd, capture_output=True, text=True)
+    ps_cmd = f"""
+    Import-Module Microsoft.PowerShell.Security -RequiredVersion 3.0.0.0
+    $certPath = "Cert:\\CurrentUser\\Root\\{thumbprint}"
+    if (-not (Test-Path -Path $certPath)) {{
+        exit 1
+    }}
+    try {{
+        Remove-Item -Path $certPath -ErrorAction Stop
+        exit 0
+    }}
+    catch {{
+        # Access denied
+        if ($_.Exception.NativeErrorCode -eq 5) {{
+            exit 2
+        }}
+        # User cancelled
+        if ($_.Exception.NativeErrorCode -eq 1223) {{
+            exit 3
+        }}
+        exit 4
+    }}
+    """
+    ps_cmd_encoded = base64.b64encode(ps_cmd.encode("utf-16le")).decode("ascii")
 
-    logger.debug(f"certutil exit code: {result.returncode}")
+    if elevated:
+        ps_args = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            # Capture the exit code and pass it through
+            f"""
+            $proc = Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-EncodedCommand','{ps_cmd_encoded}' -Verb RunAs -Wait -PassThru;
+            exit $proc.ExitCode
+            """,
+        ]
+    else:
+        ps_args = [
+            "powershell",
+            "-NoProfile",
+            "-EncodedCommand",
+            ps_cmd_encoded,
+        ]
+
+    logger.debug(f"PowerShell command: {' '.join(ps_args)}")
+
+    result = subprocess.run(
+        ps_args,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+    logger.debug(f"PowerShell output: {result.stdout}")
+    logger.debug(f"PowerShell stderr: {result.stderr}")
+    logger.debug(f"PowerShell exit code: {result.returncode}")
 
     if result.returncode == 0:
         logger.info(f"Certificate '{cn}' removed from Windows ROOT store.")
-        logger.info(
-            "You may need to restart your system for the changes to take full effect."
-        )
-    else:
-        logger.error(f"Failed to remove certificate: {result.stderr.strip()}")
+        return
+
+    if result.returncode == 1:
+        logger.warning(f"Certificate '{cn}' not found.")
+        return
+
+    # Access denied, offer to retry with administrative privileges
+    if result.returncode == 2:
+        logger.warning(f"Access denied to remove certificate '{cn}'.")
+        retry_with_admin_privileges = qy.confirm(
+            message="Retry with administrative privileges?", style=DEFAULT_QY_STYLE
+        ).ask()
+        if not retry_with_admin_privileges:
+            logger.info("Operation cancelled by user.")
+            return None
+
+        delete_windows_cert_by_thumbprint(thumbprint, cn, elevated=True)
+        return
+
+    if result.returncode == 3:
+        logger.info("Operation cancelled by user.")
+        return
+
+    logger.error(f"Failed to remove certificate with thumbprint '{thumbprint}'")
 
 
 def delete_linux_cert_by_path(cert_path: str, cn: str):

@@ -217,7 +217,7 @@ def operation2():
             return
 
         thumbprint, cn = cert_info
-        delete_windows_cert_by_sha256(thumbprint, cn)
+        delete_windows_cert_by_thumbprint(thumbprint, cn)
 
     elif system == "Linux":
         if fingerprint:
