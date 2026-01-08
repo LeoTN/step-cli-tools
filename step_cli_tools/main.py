@@ -3,6 +3,9 @@ import os
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
+# --- Third-party imports ---
+from rich.logging import RichHandler
+
 # Allows the script to be run directly and still find the package modules
 if __name__ == "__main__" and __package__ is None:
     parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,8 +15,8 @@ if __name__ == "__main__" and __package__ is None:
 # --- Local application imports ---
 from .common import *
 from .configuration import *
-from .support_functions import *
 from .operations import *
+from .support_functions import *
 
 # --- Main function ---
 
@@ -26,11 +29,24 @@ def main():
     except PackageNotFoundError:
         pkg_version = "0.0.0"
 
+    # Mute console logging
+    for handler in logger.handlers:
+        if isinstance(handler, RichHandler):
+            handler.setLevel("CRITICAL")
+    # Mark the log starting point
+    bannerText = f"# {pkg_name} - Version {pkg_version} #"
+    textArray = ["", "#" * len(bannerText), bannerText, "#" * len(bannerText), ""]
+    for text in textArray:
+        logger.info(text)
+    # Unmute console logging
+    for handler in logger.handlers:
+        if isinstance(handler, RichHandler):
+            handler.setLevel(logger.level)
+
     # Verify and load the config file
     check_and_repair_config_file()
-    config.load()
 
-    # Check for updates and when running a release version (not 0.0.0)
+    # Check for updates when running a release version (not 0.0.0)
     if (
         config.get("update_config.check_for_updates_at_launch")
         and pkg_version != "0.0.0"
@@ -39,7 +55,9 @@ def main():
             "update_config.consider_beta_versions_as_available_updates"
         )
         latest_version = check_for_update(
-            pkg_version, include_prerelease=include_prerelease
+            pkg_name=pkg_name,
+            current_pkg_version=pkg_version,
+            include_prerelease=include_prerelease,
         )
     else:
         latest_version = None
@@ -78,11 +96,11 @@ def main():
     console.print(f"{logo}")
     console.print(version_text)
 
-    # Ensure Step CLI is installed
+    # Ensure step-cli is installed
     if not os.path.exists(STEP_BIN):
         console.print()
         answer = qy.confirm(
-            message="Step CLI not found. Do you want to install it now?",
+            message="step-cli not found. Do you want to install it now?",
             style=DEFAULT_QY_STYLE,
         ).ask()
         if answer:

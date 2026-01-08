@@ -1,6 +1,10 @@
+# --- Standard library imports ---
 import ipaddress
 import re
-from questionary import Validator, ValidationError
+
+# --- Third-party imports ---
+from questionary import ValidationError, Validator
+
 
 __all__ = [
     "HostnamePortValidator",

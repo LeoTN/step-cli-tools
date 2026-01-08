@@ -6,3 +6,5 @@ echo Terminal ready...
 set psScriptPath="%CD%\CheckDependencies.ps1"
 
 powershell.exe -executionPolicy bypass -file %psScriptPath%
+
+pause

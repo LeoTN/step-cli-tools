@@ -5,7 +5,6 @@ import re
 # --- Third-party imports ---
 from rich.panel import Panel
 
-
 # --- Local application imports ---
 from .common import *
 from .configuration import *
@@ -20,13 +19,9 @@ __all__ = [
 
 def operation1():
     """
-    Perform the CA bootstrap operation.
+    Install a root certificate in the system trust store.
 
-    Prompts the user for the CA server and fingerprint, then executes
-    the step-ca bootstrap command.
-
-    Returns:
-        None
+    Prompt the user for the CA server and (optionally) root CA fingerprint, then execute the step-ca bootstrap command.
     """
 
     warning_text = (
@@ -47,7 +42,7 @@ def operation1():
     ).ask()
 
     if not ca_input or not ca_input.strip():
-        console.print("[INFO] Operation cancelled by user.")
+        logger.info("Operation cancelled by user.")
         return
 
     # Parse host and port
@@ -82,7 +77,7 @@ def operation1():
         # Ask the user if they would like to use this fingerprint or enter it manually
         console.print()
         use_fingerprint = qy.confirm(
-            message=f"Continue with installation of this root CA? (Abort to enter the fingerprint manually)",
+            message="Continue with installation of this root CA? (Abort to enter the fingerprint manually)",
             style=DEFAULT_QY_STYLE,
         ).ask()
 
@@ -98,7 +93,7 @@ def operation1():
         ).ask()
         # Check for empty input
         if not fingerprint or not fingerprint.strip():
-            console.print("[INFO] Operation cancelled by user.")
+            logger.info("Operation cancelled by user.")
             return
     # step-cli expects the fingerprint without colons
     fingerprint = fingerprint.replace(":", "")
@@ -112,15 +107,14 @@ def operation1():
     elif system == "Linux":
         cert_info = find_linux_cert_by_sha256(fingerprint)
     else:
-        console.print(
-            f"[WARNING] Could not check for existing certificates on unsupported platform: {system}",
-            style="#F9ED69",
+        logger.warning(
+            f"Could not check for existing certificates on unsupported platform: {system}"
         )
+
     # Confirm overwrite
     if cert_info:
-        console.print(
-            f"[INFO] Certificate with fingerprint '{fingerprint}' already exists in the system trust store.",
-            style="#F08A5D",
+        logger.info(
+            f"Certificate with fingerprint '{fingerprint}' already exists in the system trust store."
         )
         console.print()
         overwrite_certificate = qy.confirm(
@@ -129,7 +123,7 @@ def operation1():
             style=DEFAULT_QY_STYLE,
         ).ask()
         if not overwrite_certificate:
-            console.print("[INFO] Operation cancelled by user.")
+            logger.info("Operation cancelled by user.")
             return
 
     # Run step-ca bootstrap
@@ -146,8 +140,8 @@ def operation1():
 
     result = execute_step_command(bootstrap_args, STEP_BIN)
     if isinstance(result, str):
-        console.print(
-            "[NOTE] You may need to restart your system for the changes to take full effect."
+        logger.info(
+            "You may need to restart your system for the changes to take full effect."
         )
 
 
@@ -155,11 +149,8 @@ def operation2():
     """
     Uninstall a root CA certificate from the system trust store.
 
-    Prompts the user for the certificate fingerprint or a search term and removes it from
+    Prompt the user for the certificate fingerprint or a search term and remove it from
     the appropriate trust store based on the platform.
-
-    Returns:
-        None
     """
 
     warning_text = (
@@ -179,7 +170,7 @@ def operation2():
 
     # Check for empty input
     if not fingerprint_or_search_term or not fingerprint_or_search_term.strip():
-        console.print("[INFO] Operation cancelled by user.")
+        logger.info("Operation cancelled by user.")
         return
     fingerprint_or_search_term = fingerprint_or_search_term.replace(":", "").strip()
 
@@ -199,18 +190,16 @@ def operation2():
         if fingerprint:
             cert_info = find_windows_cert_by_sha256(fingerprint)
             if not cert_info:
-                console.print(
-                    f"[ERROR] No certificate with fingerprint '{fingerprint}' was found in the Windows user ROOT trust store.",
-                    style="#B83B5E",
+                logger.error(
+                    f"No certificate with fingerprint '{fingerprint}' was found in the Windows user ROOT trust store."
                 )
                 return
 
         elif search_term:
             certs_info = find_windows_certs_by_name(search_term)
             if not certs_info:
-                console.print(
-                    f"[ERROR] No certificates matching '{search_term}' were found in the Windows user ROOT trust store.",
-                    style="#B83B5E",
+                logger.error(
+                    f"No certificates matching '{search_term}' were found in the Windows user ROOT trust store."
                 )
                 return
 
@@ -224,28 +213,26 @@ def operation2():
             )
 
         if not cert_info:
-            console.print("[INFO] Operation cancelled by user.")
+            logger.info("Operation cancelled by user.")
             return
 
         thumbprint, cn = cert_info
-        delete_windows_cert_by_sha256(thumbprint, cn)
+        delete_windows_cert_by_thumbprint(thumbprint, cn)
 
     elif system == "Linux":
         if fingerprint:
             cert_info = find_linux_cert_by_sha256(fingerprint)
             if not cert_info:
-                console.print(
-                    f"[ERROR] No certificate with fingerprint '{fingerprint}' was found in the Linux trust store.",
-                    style="#B83B5E",
+                logger.error(
+                    f"No certificate with fingerprint '{fingerprint}' was found in the Linux trust store."
                 )
                 return
 
         elif search_term:
             certs_info = find_linux_certs_by_name(search_term)
             if not certs_info:
-                console.print(
-                    f"[ERROR] No certificates matching '{search_term}' were found in the Linux trust store.",
-                    style="#B83B5E",
+                logger.error(
+                    f"No certificates matching '{search_term}' were found in the Linux trust store."
                 )
                 return
 
@@ -259,14 +246,11 @@ def operation2():
             )
 
         if not cert_info:
-            console.print("[INFO] Operation cancelled by user.")
+            logger.info("Operation cancelled by user.")
             return
 
         cert_path, cn = cert_info
         delete_linux_cert_by_path(cert_path, cn)
 
     else:
-        console.print(
-            f"[ERROR] Unsupported platform for this operation: {system}",
-            style="#B83B5E",
-        )
+        logger.error(f"Unsupported platform for this operation: {system}")
