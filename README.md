@@ -8,7 +8,7 @@
 
 </div>
 
----
+##
 
 This tool aims to **simplify** the use of the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli**.
 
@@ -34,14 +34,12 @@ sct
 
 ℹ️ More features are planned.
 
-
 ## Credits & License
 
 * [**vhs**](https://github.com/charmbracelet/vhs) → creation of the terminal GIF
 * [**step-cli**](https://github.com/smallstep/cli) → the magic under the hood
 * [**befunky**](https://www.befunky.com) → website used to design the logo
 * [**python dependencies**](https://github.com/LeoTN/step-cli-tools/blob/main/pyproject.toml) → several useful libraries
-
 
 I appreciate your **constructive** and **honest** feedback. Feel free to create an **issue** or **feature** request.
 
