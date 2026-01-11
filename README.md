@@ -1,6 +1,6 @@
 <div align="center">
 
-[![step-cli-tools](assets/logo/readme_logo.svg)](https://github.com/LeoTN/step-cli-tools)
+[![step-cli-tools](https://raw.githubusercontent.com/LeoTN/step-cli-tools/main/assets/logo/readme_logo.svg)](https://github.com/LeoTN/step-cli-tools)
 
 [![latest-version](https://img.shields.io/github/v/release/LeoTN/step-cli-tools?&filter=*.*.*&display_name=release&style=for-the-badge&logo=Rocket&logoColor=green&label=LATEST&color=green)](https://github.com/LeoTN/step-cli-tools/releases/latest)
 [![latest-beta-version](https://img.shields.io/github/v/release/LeoTN/step-cli-tools?&include_prereleases&filter=*.*.*b*&display_name=release&style=for-the-badge&logo=Textpattern&logoColor=orange&label=LATEST%20BETA&color=orange)](https://github.com/LeoTN/step-cli-tools/releases)
@@ -33,6 +33,18 @@ sct
 | 📜 **Manage Root CA Certificates** | Install & uninstall your **root CA certificate** easily |
 
 ℹ️ More features are planned.
+
+## Supported Platforms
+
+| Platform              | Status     |
+|-----------------------|------------|
+| Ubuntu Server         | Tested     |
+| Windows 11            | Tested     |
+| Debian                | Unverified |
+| macOS                 | Unverified |
+| Windows 10            | Unverified |
+
+⚠️ The tool is expected to work on the unverified platforms, but they have not been actively tested. User feedback on these systems is welcome!
 
 ## Credits & License
 
