@@ -37,14 +37,14 @@ sct
 ## Supported Platforms
 
 | Platform              | Status     |
-|-----------------------|------------|
+|-----------------------|:----------:|
 | Ubuntu Server         | ✅         |
 | Windows 11            | ✅         |
 | Debian                | Unverified |
 | macOS                 | Unverified |
 | Windows 10            | Unverified |
 
-⚠️ The tool is expected to work on the unverified platforms, but they have not been actively tested. User feedback on these systems is welcome!
+⚠️ The tool should work on the unverified platforms, but they have not been actively tested. User feedback on these systems is welcome!
 
 ## Credits & License
 
