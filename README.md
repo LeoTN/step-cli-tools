@@ -38,8 +38,8 @@ sct
 
 | Platform              | Status     |
 |-----------------------|------------|
-| Ubuntu Server         | Tested     |
-| Windows 11            | Tested     |
+| Ubuntu Server         | ✅         |
+| Windows 11            | ✅         |
 | Debian                | Unverified |
 | macOS                 | Unverified |
 | Windows 10            | Unverified |
