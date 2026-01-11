@@ -1,6 +1,6 @@
 <div align="center">
 
-[![step-cli-tools](https://raw.githubusercontent.com/LeoTN/step-cli-tools/main/assets/readme_logo.png)](https://github.com/LeoTN/step-cli-tools)
+[![step-cli-tools](https://raw.githubusercontent.com/LeoTN/step-cli-tools/main/assets/logo/readme_logo.svg)](https://github.com/LeoTN/step-cli-tools)
 
 [![latest-version](https://img.shields.io/github/v/release/LeoTN/step-cli-tools?&filter=*.*.*&display_name=release&style=for-the-badge&logo=Rocket&logoColor=green&label=LATEST&color=green)](https://github.com/LeoTN/step-cli-tools/releases/latest)
 [![latest-beta-version](https://img.shields.io/github/v/release/LeoTN/step-cli-tools?&include_prereleases&filter=*.*.*b*&display_name=release&style=for-the-badge&logo=Textpattern&logoColor=orange&label=LATEST%20BETA&color=orange)](https://github.com/LeoTN/step-cli-tools/releases)
@@ -10,7 +10,7 @@
 
 ##
 
-This tool aims to **simplify** the use of the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli**.
+This tool is designed to **simplify** using the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli** whilst adding a few extra features.
 
 <img src="https://raw.githubusercontent.com/LeoTN/step-cli-tools/main/assets/readme.gif">
 
@@ -34,12 +34,24 @@ sct
 
 ℹ️ More features are planned.
 
+## Supported Platforms
+
+| Platform              | Status     |
+|-----------------------|:----------:|
+| Ubuntu Server         | ✅         |
+| Windows 11            | ✅         |
+| Debian                | Unverified |
+| macOS                 | Unverified |
+| Windows 10            | Unverified |
+
+⚠️ The tool should work on the unverified platforms, but they have not been actively tested. User feedback on these systems is welcome!
+
 ## Credits & License
 
 * [**vhs**](https://github.com/charmbracelet/vhs) → creation of the terminal GIF
 * [**step-cli**](https://github.com/smallstep/cli) → the magic under the hood
-* [**befunky**](https://www.befunky.com) → website used to design the logo
-* [**python dependencies**](https://github.com/LeoTN/step-cli-tools/blob/main/pyproject.toml) → several useful libraries
+* [**Inkscape**](https://inkscape.org) → program used to design the logo
+* [**Python dependencies**](https://github.com/LeoTN/step-cli-tools/blob/main/pyproject.toml) → several useful libraries
 
 I appreciate your **constructive** and **honest** feedback. Feel free to create an **issue** or **feature** request.
 
