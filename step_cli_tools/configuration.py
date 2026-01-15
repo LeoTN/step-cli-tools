@@ -319,7 +319,7 @@ class Configuration:
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
-                return None
+                return
             data = data[k]
         return data if isinstance(data, dict) else None
 
@@ -329,18 +329,18 @@ class Configuration:
         for k in keys:
             if not isinstance(data, dict) or k not in data:
                 logger.warning(f"Missing default for key '{'.'.join(keys)}'.")
-                return None
+                return
             data = data[k]
             if isinstance(data, dict) and "default" in data:
                 return data["default"]
-        return None
+        return
 
     def _nested_get_type(self, keys: list[str]):
         """Retrieve expected type from schema for nested key path."""
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
-                return None
+                return
             data = data[k]
         return data.get("type") if isinstance(data, dict) else None
 

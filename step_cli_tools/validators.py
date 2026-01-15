@@ -102,7 +102,7 @@ def int_range_validator(min_value: int, max_value: int):
             return f"Invalid type: expected int, got {type(value).__name__}"
         if value < min_value or value > max_value:
             return f"Value {value} out of range ({min_value}–{max_value})"
-        return None
+        return
 
     return validator
 
@@ -126,7 +126,7 @@ def str_allowed_validator(allowed: list[str]):
         if value not in allowed:
             allowed_str = ", ".join(map(repr, allowed))
             return f"Invalid value '{value}'. Allowed values: {allowed_str}"
-        return None
+        return
 
     return validator
 
@@ -144,7 +144,7 @@ def bool_validator(value) -> str | None:
 
     if not isinstance(value, bool):
         return f"Invalid type: expected bool, got {type(value).__name__}"
-    return None
+    return
 
 
 def server_validator(value: str) -> str | None:
@@ -164,7 +164,7 @@ def server_validator(value: str) -> str | None:
     value = value.strip()
     if not value:
         # An empty string is allowed in the config file
-        return None
+        return
 
     # Split host and optional port
     if ":" in value:
@@ -177,7 +177,7 @@ def server_validator(value: str) -> str | None:
     # Check if host is a valid IP address
     try:
         ipaddress.ip_address(host_part)
-        return None  # valid IP
+        return
     except ValueError:
         pass
 
@@ -192,4 +192,4 @@ def server_validator(value: str) -> str | None:
             "Must not contain spaces or invalid characters."
         )
 
-    return None  # valid
+    return

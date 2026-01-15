@@ -111,18 +111,18 @@ def main():
     # Define operations and their corresponding functions
     operations = [
         qy.Choice(
-            title="Install root CA on the system",
-            description="Add a root certificate of your step-ca server into the system trust store.",
+            title="Install Root CA",
+            description="Add a root certificate of your step-ca server to the system trust store.",
             value=operation1,
         ),
         qy.Choice(
-            title="Uninstall root CA from the system (Windows & Linux)",
+            title="Uninstall Root CA (Windows & Linux)",
             description="Delete a root certificate (of your step-ca server) from the system trust store.",
             value=operation2,
         ),
         qy.Choice(
             title="Configuration",
-            description="View and edit the configuration file.",
+            description="View and edit the config file.",
             value=show_config_operations,
         ),
         qy.Choice(

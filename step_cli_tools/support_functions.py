@@ -108,7 +108,7 @@ def check_for_update(
 
         if not releases:
             logger.debug("No valid releases found")
-            return None
+            return
 
         latest_version = max(releases, key=version.parse)
         latest_parsed_version = version.parse(latest_version)
@@ -128,7 +128,7 @@ def check_for_update(
 
     except Exception as e:
         logger.debug(f"Update check failed: {e}")
-        return None
+        return
 
 
 def install_step_cli(step_bin: str):
@@ -228,7 +228,7 @@ def execute_step_command(args, step_bin: str, interactive: bool = False) -> str 
 
     if not step_bin or not os.path.exists(step_bin):
         logger.error("step-cli not found. Please install it first.")
-        return None
+        return
 
     try:
         if interactive:
@@ -237,7 +237,7 @@ def execute_step_command(args, step_bin: str, interactive: bool = False) -> str 
 
             if result.returncode != 0:
                 logger.error(f"step-cli command exit code: {result.returncode}")
-                return None
+                return
 
             return ""
         else:
@@ -246,13 +246,13 @@ def execute_step_command(args, step_bin: str, interactive: bool = False) -> str 
 
             if result.returncode != 0:
                 logger.error(f"step-cli command failed: {result.stderr.strip()}")
-                return None
+                return
 
             return result.stdout.strip()
 
     except Exception as e:
         logger.error(f"Failed to execute step-cli command: {e}")
-        return None
+        return
 
 
 def execute_ca_request(
@@ -305,7 +305,7 @@ def execute_ca_request(
 
             if not answer:
                 logger.info("Operation cancelled by user.")
-                return None
+                return
 
             logger.debug("Retrying request with unverified SSL context")
 
@@ -315,18 +315,18 @@ def execute_ca_request(
                 logger.error(
                     f"Retry failed: {retry_error}\n\nIs the port correct and the server available?"
                 )
-                return None
+                return
 
         logger.error(
             f"Connection failed: {e}\n\nIs the port correct and the server available?"
         )
-        return None
+        return
 
     except Exception as e:
         logger.error(
             f"Request failed: {e}\n\nIs the port correct and the server available?"
         )
-        return None
+        return
 
 
 def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bool:
@@ -367,7 +367,7 @@ def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bo
 def get_ca_root_info(
     ca_base_url: str,
     trust_unknown_default: bool = False,
-) -> CARootInfo | None:
+) -> RootCAInfo | None:
     """
     Fetch the first root certificate from a Smallstep CA and return its name
     and SHA256 fingerprint.
@@ -377,7 +377,7 @@ def get_ca_root_info(
         trust_unknown_default: Skip SSL verification immediately if True.
 
     Returns:
-        CARootInfo on success, None on error or user cancel.
+        RootCAInfo on success, None on error or user cancel.
     """
 
     logger.debug(locals())
@@ -391,7 +391,7 @@ def get_ca_root_info(
 
     if pem_bundle is None:
         logger.debug("Failed to retrieve roots.pem")
-        return None
+        return
 
     try:
         # Extract first PEM certificate
@@ -402,7 +402,7 @@ def get_ca_root_info(
         )
         if not match:
             logger.error("No certificate found in roots.pem")
-            return None
+            return
 
         logger.debug("Loading PEM certificate")
         cert = x509.load_pem_x509_certificate(
@@ -432,14 +432,14 @@ def get_ca_root_info(
 
         logger.info("Root CA information retrieved successfully.")
 
-        return CARootInfo(
+        return RootCAInfo(
             ca_name=ca_name,
             fingerprint_sha256=fingerprint.replace(":", ""),
         )
 
     except Exception as e:
         logger.error(f"Failed to process CA root certificate: {e}")
-        return None
+        return
 
 
 def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
@@ -489,7 +489,7 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
 
     if result.returncode != 0:
         logger.error(f"Failed to query certificates: {result.stderr.strip()}")
-        return None
+        return
 
     normalized_fp = sha256_fingerprint.lower().replace(":", "")
 
@@ -505,7 +505,7 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
             continue
 
     logger.debug("No matching Windows certificate found")
-    return None
+    return
 
 
 def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
@@ -605,7 +605,7 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
 
     if not os.path.isdir(cert_dir):
         logger.error(f"Cert directory not found: {cert_dir}")
-        return None
+        return
 
     # Ignore deprecation warnings about non-positive serial numbers
     with warnings.catch_warnings():
@@ -637,7 +637,7 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
                     continue
 
     logger.debug("No matching Linux certificate found")
-    return None
+    return
 
 
 def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
@@ -824,7 +824,7 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
         ).ask()
         if not retry_with_admin_privileges:
             logger.info("Operation cancelled by user.")
-            return None
+            return
 
         delete_windows_cert_by_thumbprint(thumbprint, cn, elevated=True)
         return
@@ -996,7 +996,7 @@ def choose_cert_from_list(
 
     if not certs:
         logger.debug("No certificates available for selection")
-        return None
+        return
 
     # Sort certificates alphabetically by subject (case-insensitive)
     sorted_certs = sorted(certs, key=lambda cert: cert[1].lower())
@@ -1015,7 +1015,7 @@ def choose_cert_from_list(
 
     if selected_subject is None:
         logger.debug("User cancelled certificate selection")
-        return None
+        return
 
     # Return the full tuple matching the selected subject
     for cert in sorted_certs:
@@ -1026,4 +1026,4 @@ def choose_cert_from_list(
             return cert
 
     logger.debug("Selected certificate not found in internal list")
-    return None
+    return
