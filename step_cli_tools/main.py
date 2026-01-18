@@ -121,6 +121,11 @@ def main():
             value=operation2,
         ),
         qy.Choice(
+            title="Request Certificate",
+            description="Request a new certificate from your step-ca server.",
+            value=operation3,
+        ),
+        qy.Choice(
             title="Configuration",
             description="View and edit the config file.",
             value=show_config_operations,
@@ -135,7 +140,7 @@ def main():
         console.print()
         # Prompt the user to select an operation
         selected_operation = qy.select(
-            message="Operation:",
+            message="Operation",
             choices=operations,
             use_search_filter=True,
             use_jk_keys=False,

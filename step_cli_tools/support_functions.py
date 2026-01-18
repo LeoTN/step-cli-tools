@@ -11,15 +11,20 @@ import tarfile
 import tempfile
 import time
 import warnings
+from datetime import datetime
 from pathlib import Path
+from urllib.error import URLError
 from urllib.request import urlopen
-import urllib.error
 from zipfile import ZipFile
 
 # --- Third-party imports ---
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, ed448, rsa
+from cryptography.hazmat.primitives.asymmetric.types import PublicKeyTypes
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.serialization import load_pem_private_key, pkcs12
 from cryptography.utils import CryptographyDeprecationWarning
 from cryptography.x509.oid import NameOID
 from packaging import version
@@ -33,6 +38,7 @@ __all__ = [
     "check_for_update",
     "install_step_cli",
     "execute_step_command",
+    "execute_certificate_request",
     "check_ca_health",
     "get_ca_root_info",
     "find_windows_cert_by_sha256",
@@ -42,6 +48,9 @@ __all__ = [
     "delete_windows_cert_by_thumbprint",
     "delete_linux_cert_by_path",
     "choose_cert_from_list",
+    "convert_certificate",
+    "sanitize_filename",
+    "get_final_path",
 ]
 
 
@@ -60,7 +69,7 @@ def check_for_update(
         The latest version string if a newer version exists, otherwise None.
     """
 
-    cache = Path.home() / f".{pkg_name}" / ".cache" / "update_check.json"
+    cache = Path(SCRIPT_CACHE_DIR)
     cache.parent.mkdir(parents=True, exist_ok=True)
     now = time.time()
     current_parsed_version = version.parse(current_pkg_version)
@@ -232,14 +241,16 @@ def execute_step_command(args, step_bin: str, interactive: bool = False) -> str 
 
     try:
         if interactive:
+            logger.info("--- Interactive step-cli mode start ---")
             result = subprocess.run([step_bin] + args)
+            logger.info("--- Interactive step-cli mode end ---")
             logger.debug(f"step-cli command exit code: {result.returncode}")
 
             if result.returncode != 0:
                 logger.error(f"step-cli command exit code: {result.returncode}")
                 return
 
-            return ""
+            return "Interactive command executed successfully."
         else:
             result = subprocess.run([step_bin] + args, capture_output=True, text=True)
             logger.debug(f"step-cli command exit code: {result.returncode}")
@@ -288,7 +299,7 @@ def execute_ca_request(
     try:
         return do_request(context)
 
-    except urllib.error.URLError as e:
+    except URLError as e:
         reason = getattr(e, "reason", None)
 
         logger.debug(f"URLError: {e}")
@@ -329,6 +340,87 @@ def execute_ca_request(
         return
 
 
+def execute_certificate_request(
+    request_parameters: CertificateRequestInfo,
+    ca_base_url: str,
+) -> tuple[Path, Path] | None:
+    """
+    Request a new certificate from a step-ca server.
+
+    Args:
+        request_parameters: Certificate request parameters.
+        ca_base_url: Base URL of the CA server, including protocol and port.
+
+    Returns:
+        Tuple of certificate and key paths on success, None on error or user cancel.
+    """
+
+    logger.debug(locals())
+
+    try:
+        request_parameters.validate()
+    except ValueError as e:
+        logger.error(f"Invalid certificate request parameters: {e}")
+        return
+
+    # The step-ca server can only return the certificate and key in this format
+    tmp_crt_file_path = Path(SCRIPT_CACHE_DIR) / f"{request_parameters.timestamp}.crt"
+    tmp_key_file_path = Path(SCRIPT_CACHE_DIR) / f"{request_parameters.timestamp}.key"
+
+    args = [
+        "ca",
+        "certificate",
+        request_parameters.subject_name,
+        tmp_crt_file_path,
+        tmp_key_file_path,
+        "--ca-url",
+        ca_base_url,
+        "--force",
+    ]
+
+    # Just a safety measure as the entries should contain the subject name at least
+    if request_parameters.san_entries:
+        for san_entry in request_parameters.san_entries:
+            args.extend(["--san", san_entry])
+
+    # The logic is already handled in the data class
+    if request_parameters.key_algorithm:
+        args.extend(["--kty", request_parameters.key_algorithm.value.arg])
+
+    if request_parameters.is_key_algorithm_ec():
+        args.extend(["--curve", request_parameters.ecc_curve.value.arg])
+
+    if request_parameters.is_key_algorithm_okp():
+        args.extend(["--curve", request_parameters.okp_curve.value.arg])
+
+    if request_parameters.is_key_algorithm_rsa():
+        args.extend(["--size", request_parameters.rsa_size.value.arg])
+
+    if request_parameters.valid_since:
+        args.extend(
+            [
+                "--not-before",
+                request_parameters.valid_since.isoformat(timespec="seconds"),
+            ]
+        )
+
+    if request_parameters.valid_until:
+        args.extend(
+            [
+                "--not-after",
+                request_parameters.valid_until.isoformat(timespec="seconds"),
+            ]
+        )
+
+    # Interactive because the the user will be asked for the JWK password
+    result = execute_step_command(args=args, step_bin=STEP_BIN, interactive=True)
+    if not result:
+        logger.error("Certificate request failed.")
+        return
+
+    return tmp_crt_file_path, tmp_key_file_path
+
+
 def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bool:
     """
     Check the health endpoint of a CA server via HTTPS.
@@ -346,7 +438,7 @@ def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bo
     health_url = ca_base_url.rstrip("/") + "/health"
 
     response = execute_ca_request(
-        health_url,
+        url=health_url,
         trust_unknown_default=trust_unknown_default,
     )
 
@@ -385,7 +477,7 @@ def get_ca_root_info(
     roots_url = ca_base_url.rstrip("/") + "/roots.pem"
 
     pem_bundle = execute_ca_request(
-        roots_url,
+        url=roots_url,
         trust_unknown_default=trust_unknown_default,
     )
 
@@ -1027,3 +1119,253 @@ def choose_cert_from_list(
 
     logger.debug("Selected certificate not found in internal list")
     return
+
+
+def convert_certificate(
+    crt_path: Path,
+    key_path: Path,
+    output_dir: Path,
+    output_format: CRI_OutputFormat,
+    key_output_encryption_password: str | None = None,
+    pfx_output_encryption_password: str | None = None,
+) -> CertificateConversionResult:
+    """
+    Convert or bundle a CRT and KEY file into the desired output format.
+
+    Args:
+        crt_path: Path to the PEM-encoded certificate (.crt).
+        key_path: Path to the PEM-encoded private key (.key).
+        output_dir: Directory where output file(s) will be written.
+        output_format: Desired output format (PEM_CRT_KEY, PEM_BUNDLE, PFX_BUNDLE).
+        key_output_encryption_password: Optional password for KEY output.
+        pfx_output_encryption_password: Optional password for PFX output.
+
+    Returns:
+        CertificateConversionResult with relevant paths set.
+    """
+
+    # Mask sensitive values for logging
+    debug_locals = {
+        key: (
+            "***"
+            if key
+            in {"key_output_encryption_password", "pfx_output_encryption_password"}
+            and value is not None
+            else value
+        )
+        for key, value in locals().items()
+    }
+    logger.debug(debug_locals)
+
+    def _public_key_bytes(public_key: "PublicKeyTypes") -> bytes:
+        # Serialize public key to a canonical DER representation for comparison
+        return public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result = CertificateConversionResult(format=output_format)
+
+    # --- PEM_CRT_KEY ---
+    if output_format == CRI_OutputFormat.PEM_CRT_KEY:
+        crt_out = output_dir / crt_path.name
+        key_out = output_dir / key_path.name
+
+        # Copy certificate
+        if crt_path != crt_out:
+            crt_out.write_bytes(crt_path.read_bytes())
+        else:
+            logger.debug(
+                f"Certificate output path '{crt_out}' is the same as input, skipping copy."
+            )
+
+        # Write (optionally encrypted) private key
+        if key_output_encryption_password:
+            private_key_obj = load_pem_private_key(key_path.read_bytes(), password=None)
+            key_bytes = private_key_obj.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.BestAvailableEncryption(
+                    key_output_encryption_password.encode()
+                ),
+            )
+            key_out.write_bytes(key_bytes)
+        else:
+            if key_path != key_out:
+                key_out.write_bytes(key_path.read_bytes())
+            else:
+                logger.debug(
+                    f"Private key output path '{key_out}' is the same as input, skipping copy."
+                )
+
+        result.certificate = crt_out
+        result.private_key = key_out
+        return result
+
+    crt_data = crt_path.read_bytes()
+    key_data = key_path.read_bytes()
+
+    # --- PEM_BUNDLE ---
+    if output_format == CRI_OutputFormat.PEM_BUNDLE:
+        bundle_path = output_dir / f"{crt_path.stem}_bundle.pem"
+
+        # Encrypt key first if password provided
+        if key_output_encryption_password:
+            private_key_obj = load_pem_private_key(key_data, password=None)
+            key_bytes = private_key_obj.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.BestAvailableEncryption(
+                    key_output_encryption_password.encode()
+                ),
+            )
+        else:
+            key_bytes = key_data
+
+        # Key first, certificate second
+        combined = key_bytes.rstrip() + b"\n\n" + crt_data.lstrip()
+        bundle_path.write_bytes(combined)
+
+        result.pem_bundle = bundle_path
+        return result
+
+    # --- PFX_BUNDLE ---
+    if output_format == CRI_OutputFormat.PFX_BUNDLE:
+        cert = x509.load_pem_x509_certificate(crt_data)
+        private_key = load_pem_private_key(key_data, password=None)
+
+        if not isinstance(
+            private_key,
+            (
+                rsa.RSAPrivateKey,
+                dsa.DSAPrivateKey,
+                ec.EllipticCurvePrivateKey,
+                ed25519.Ed25519PrivateKey,
+                ed448.Ed448PrivateKey,
+            ),
+        ):
+            raise TypeError(
+                f"Unsupported private key type for PKCS#12 serialization: {type(private_key).__name__}"
+            )
+
+        if _public_key_bytes(cert.public_key()) != _public_key_bytes(
+            private_key.public_key()
+        ):
+            raise ValueError(
+                f"The provided private key '{key_path}' does not match the certificate '{crt_path}'"
+            )
+
+        pfx_path = output_dir / f"{crt_path.stem}.pfx"
+        pfx_bytes = pkcs12.serialize_key_and_certificates(
+            name=crt_path.stem.encode(),
+            key=private_key,
+            cert=cert,
+            cas=None,
+            encryption_algorithm=(
+                serialization.BestAvailableEncryption(
+                    pfx_output_encryption_password.encode()
+                )
+                if pfx_output_encryption_password
+                else serialization.NoEncryption()
+            ),
+        )
+        pfx_path.write_bytes(pfx_bytes)
+        result.pfx = pfx_path
+        return result
+
+    raise ValueError(f"Unsupported output format: {output_format}")
+
+
+def sanitize_filename(value: str) -> str:
+    """
+    Convert a string into a filesystem-safe filename.
+
+    Args:
+        value: The string to sanitize.
+
+    Returns:
+        The sanitized filename.
+    """
+
+    original_value = value
+
+    # Replace German umlauts
+    umlaut_map = {
+        "Ä": "Ae",
+        "Ö": "Oe",
+        "Ü": "Ue",
+        "ä": "ae",
+        "ö": "oe",
+        "ü": "ue",
+        "ß": "ss",
+    }
+    for umlaut, replacement in umlaut_map.items():
+        value = value.replace(umlaut, replacement)
+
+    # Replace wildcard with a readable token
+    value = value.replace("*", "wildcard")
+
+    # Replace path separators and whitespace
+    value = re.sub(r"[\\/]+", "_", value)
+    value = re.sub(r"\s+", "_", value)
+
+    # Allow only safe characters
+    value = re.sub(r"[^A-Za-z0-9._-]", "_", value)
+
+    # Collapse multiple underscores
+    value = re.sub(r"_+", "_", value)
+
+    # Collapse multiple dots
+    value = re.sub(r"\.{2,}", ".", value)
+
+    # Delete leading/trailing dots and underscores
+    value = value.strip("._")
+
+    # Cap maximum length
+    if len(value) > 255:
+        logger.warning(
+            f"Filename '{value[:255]}...' is too long. Truncating to 255 characters."
+        )
+        value = value[:255]
+
+    # Replace empty string with timestamp
+    if not value:
+        replacement_value = (
+            f"sanitized_filename_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')}"
+        )
+        logger.warning(
+            f"Filename '{original_value}' is empty after sanitization. Using '{replacement_value}' instead."
+        )
+        value = replacement_value
+
+    logger.debug(f"Sanitized filename: {value}")
+    return value
+
+
+def get_final_path(base_dir: Path, file_name_with_suffix: str) -> Path:
+    """
+    Generate a safe, sanitized filename and return the final path for the file.
+    Ensures no filename collisions by appending a timestamp before the extension if necessary.
+
+    Args:
+        base_dir: The base directory for the file.
+        file_name_with_suffix: The original filename with suffix.
+
+    Returns:
+        The final path for the file.
+    """
+
+    # Sanitize the filename
+    sanitized_filename = sanitize_filename(file_name_with_suffix)
+    stem = Path(sanitized_filename).stem
+    suffix = "".join(Path(sanitized_filename).suffixes)
+
+    final_path = base_dir / sanitized_filename
+
+    # If file already exists, append timestamp before the suffix
+    if final_path.exists():
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
+        final_path = base_dir / f"{stem}_{timestamp}{suffix}"
+
+    return final_path

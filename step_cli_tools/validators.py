@@ -7,7 +7,8 @@ from questionary import ValidationError, Validator
 
 
 __all__ = [
-    "HostnamePortValidator",
+    "CertificateSubjectNameValidator",
+    "HostnameOrIPAddressAndOptionalPortValidator",
     "SHA256Validator",
     "SHA256OrNameValidator",
     "int_range_validator",
@@ -17,20 +18,102 @@ __all__ = [
 ]
 
 
-class HostnamePortValidator(Validator):
+class CertificateSubjectNameValidator(Validator):
+    """
+    Validates a certificate Subject Name or SAN entry.
+    Supports:
+      - CN/DN (escaped)
+      - DNS hostnames with optional wildcard in first label
+      - IPv4 and IPv6 addresses
+    """
+
+    def __init__(self, accept_blank: bool = False):
+        self.accept_blank = accept_blank
+        super().__init__()
+
+    # Characters that must be escaped in DN (RFC 4514)
+    DN_ESCAPE_CHARS = r",+\"\\<>;="
+
+    # DNS regex allowing optional wildcard in first label
+    DNS_WILDCARD_REGEX = re.compile(
+        r"^(?:\*\.)?(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
+        r"(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
+    )
+
     def validate(self, document):
         value = document.text.strip()
 
-        # Check if port is specified
+        # Accept blank input if configured
+        if self.accept_blank and not value:
+            return
+
+        # Check if value is a valid IP address
+        try:
+            ipaddress.ip_address(value)
+            return
+        except ValueError:
+            pass
+
+        # Reject IPv4-like values that are not valid IPv4
+        if re.match(r"^\d+(\.\d+){3}$", value):
+            raise ValidationError(
+                message=f"[ERROR] Invalid IPv4 address: {value}",
+                cursor_position=len(document.text),
+            )
+
+        # Reject IPv6-like values that are not valid IPv6
         if ":" in value:
-            host_part, port_part = value.rsplit(":", 1)
-            if not port_part.isdigit() or not (1 <= int(port_part) <= 65535):
+            raise ValidationError(
+                message=f"[ERROR] Invalid IPv6 address: {value}",
+                cursor_position=len(document.text),
+            )
+
+        # Check if value looks like a DN (contains '=')
+        if "=" in value:
+            # Reject unescaped illegal characters
+            unescaped_illegal = re.compile(
+                r"(?<!\\)[" + re.escape(self.DN_ESCAPE_CHARS) + r"]"
+            )
+            if unescaped_illegal.search(value):
                 raise ValidationError(
-                    message=f"Invalid port: {port_part}. Must be between 1 and 65535.",
+                    message=f"[ERROR] Invalid DN: contains illegal unescaped characters",
                     cursor_position=len(document.text),
                 )
-        else:
-            host_part = value
+            return  # Passed DN check
+
+        # Otherwise validate as DNS hostname with optional wildcard
+        if not self.DNS_WILDCARD_REGEX.match(value):
+            raise ValidationError(
+                message=f"[ERROR] Invalid hostname or wildcard: {value}",
+                cursor_position=len(document.text),
+            )
+
+
+class HostnameOrIPAddressAndOptionalPortValidator(Validator):
+    def validate(self, document):
+        value = document.text.strip()
+
+        host_part = value
+        port_part = None
+
+        # Check if port is specified
+        if ":" in value and not value.startswith("["):
+            # Simple IPv4 or hostname with optional port
+            host_part, port_part = value.rsplit(":", 1)
+        elif value.startswith("[") and "]" in value:
+            # IPv6 literal with optional port: [IPv6]:port
+            host_end = value.index("]")
+            host_part = value[1:host_end]
+            if host_end + 1 < len(value) and value[host_end + 1] == ":":
+                port_part = value[host_end + 2 :]
+
+        # Validate port if present
+        if port_part:
+            if not port_part.isdigit() or not (1 <= int(port_part) <= 65535):
+                raise ValidationError(
+                    message=f"Invalid port: {port_part}. Must be between 1 and 65535",
+                    cursor_position=len(document.text),
+                )
 
         # Check if host is a valid IP address
         try:
@@ -39,13 +122,29 @@ class HostnamePortValidator(Validator):
         except ValueError:
             pass
 
+        # Reject IPv4-like values that are not valid IPv4 addresses
+        ipv4_like_regex = re.compile(r"^\d+(\.\d+){3}$")
+        if ipv4_like_regex.match(host_part):
+            raise ValidationError(
+                message=f"Invalid IPv4 address: {host_part}",
+                cursor_position=len(document.text),
+            )
+
+        # Reject IPv6-like values that are not valid IPv6 addresses
+        if ":" in host_part:
+            raise ValidationError(
+                message=f"Invalid IPv6 address: {host_part}",
+                cursor_position=len(document.text),
+            )
+
         # Check hostname validity
         hostname_regex = re.compile(
-            r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
+            r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
+            r"(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
         )
         if not hostname_regex.match(host_part):
             raise ValidationError(
-                message=f"Invalid hostname: {host_part}. Must not contain spaces or invalid characters.",
+                message=f"Invalid hostname or IP address: {host_part}",
                 cursor_position=len(document.text),
             )
 
@@ -72,7 +171,7 @@ class SHA256OrNameValidator(Validator):
         # Delete colons if present
         normalized = value.replace(":", "")
 
-        # Automatically accepts SHA256 fingerprints
+        # Accept SHA256 fingerprints
         if not re.fullmatch(r"[A-Za-z0-9\s\-\_\*]+", normalized):
             raise ValidationError(
                 message="Invalid input. Enter a SHA256 fingerprint or a name with optional '*'",

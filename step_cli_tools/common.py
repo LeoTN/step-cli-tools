@@ -15,6 +15,8 @@ __all__ = [
     "qy",
     "DEFAULT_QY_STYLE",
     "SCRIPT_HOME_DIR",
+    "SCRIPT_CACHE_DIR",
+    "SCRIPT_CERT_DIR",
     "SCRIPT_LOGGING_DIR",
     "STEP_BIN",
     "logger",
@@ -43,6 +45,8 @@ DEFAULT_QY_STYLE = qy.Style(
 
 # --- Directories and files ---
 SCRIPT_HOME_DIR = os.path.expanduser("~/.step-cli-tools")
+SCRIPT_CACHE_DIR = os.path.normpath(os.path.join(SCRIPT_HOME_DIR, ".cache"))
+SCRIPT_CERT_DIR = os.path.normpath(os.path.join(SCRIPT_HOME_DIR, "certs"))
 SCRIPT_LOGGING_DIR = os.path.normpath(os.path.join(SCRIPT_HOME_DIR, "logs"))
 
 

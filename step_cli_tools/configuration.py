@@ -83,12 +83,12 @@ class Configuration:
 
             # Backup existing file before overwriting
             if self.file_location.exists() and overwrite:
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
                 backup_path = self.file_location.with_name(
                     f"{self.file_location.stem}_backup_{timestamp}{self.file_location.suffix}"
                 )
                 shutil.copy2(self.file_location, backup_path)
-                logger.info(f"Created backup before overwrite: {backup_path}")
+                logger.info(f"Created backup before overwrite at '{backup_path}'.")
 
             # This is a bit akward but the file is technically repaired without keeping any data.
             default_data = self._build_commented_data(
@@ -100,7 +100,7 @@ class Configuration:
                 yaml.dump(default_data, f)
 
             logger.info(
-                f"Default configuration file was generated successfully: {self.file_location}"
+                f"Generated default configuration file at '{self.file_location}'."
             )
 
             # Load the data into memory so it's ready for use
@@ -470,8 +470,10 @@ def check_and_repair_config_file():
         # In case the automatic repair fails
         console.print()
         selected_action = qy.select(
-            message="Choose an action:",
+            message="Choose an action",
             choices=["Edit config file", "Reset config file"],
+            use_search_filter=True,
+            use_jk_keys=False,
             style=DEFAULT_QY_STYLE,
         ).ask()
 
@@ -511,7 +513,7 @@ def show_config_operations():
         # Prompt user to select an operation
         console.print()
         selected_operation = qy.select(
-            message="Config file operation:",
+            message="Config file operation",
             choices=config_operations,
             use_search_filter=True,
             use_jk_keys=False,
@@ -563,11 +565,13 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
         logger.error("Configuration is invalid.")
         console.print()
         selected_action = qy.select(
-            message="Choose an action:",
+            message="Choose an action",
             choices=[
                 "Edit again",
                 "Reset config file" if reset_instead_of_discard else "Discard changes",
             ],
+            use_search_filter=True,
+            use_jk_keys=False,
             style=DEFAULT_QY_STYLE,
         ).ask()
 
