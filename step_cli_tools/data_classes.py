@@ -5,23 +5,8 @@ from enum import Enum
 from pathlib import Path
 
 # --- Local application imports ---
-from .common import *
-
-__all__ = [
-    "RootCAInfo",
-    "CRI_OutputFormat_Information",
-    "CRI_OutputFormat",
-    "CRI_KeyAlgorithm_Information",
-    "CRI_KeyAlgorithm",
-    "CRI_ECCurve_Information",
-    "CRI_ECCurve",
-    "CRI_RSAKeySize_Information",
-    "CRI_RSAKeySize",
-    "CRI_OKPCurve_Information",
-    "CRI_OKPCurve",
-    "CertificateRequestInfo",
-    "CertificateConversionResult",
-]
+from .common import SCRIPT_CERT_DIR, logger
+from .support_functions_paths import sanitize_filename
 
 # --- Root CA Info ---
 
@@ -184,6 +169,10 @@ class CertificateRequestInfo:
 
     # Derived fields (always set in __post_init__)
     final_output_dir: Path = field(init=False)
+    final_crt_output_name_with_suffix: Path = field(init=False)
+    final_key_output_name_with_suffix: Path = field(init=False)
+    final_pem_bundle_output_name_with_suffix: Path = field(init=False)
+    final_pfx_bundle_output_name_with_suffix: Path = field(init=False)
 
     def __post_init__(self):
         # Generate timestamp
@@ -191,6 +180,20 @@ class CertificateRequestInfo:
 
         # Output folder with timestamp
         self.final_output_dir = Path(SCRIPT_CERT_DIR) / self.timestamp
+
+        # Sanitized output file names
+        self.final_crt_output_name_with_suffix = Path(
+            sanitize_filename(f"{self.subject_name}.crt")
+        )
+        self.final_key_output_name_with_suffix = Path(
+            sanitize_filename(f"{self.subject_name}.key")
+        )
+        self.final_pem_bundle_output_name_with_suffix = Path(
+            sanitize_filename(f"{self.subject_name}.pem")
+        )
+        self.final_pfx_bundle_output_name_with_suffix = Path(
+            sanitize_filename(f"{self.subject_name}.pfx")
+        )
 
         # Default SAN entry
         if not self.san_entries:

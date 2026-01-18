@@ -1,25 +1,46 @@
 # --- Standard library imports ---
-from datetime import datetime, timedelta, timezone
-from enum import Enum
-from pathlib import Path
 import platform
 import re
+from enum import Enum
+from pathlib import Path
 
 # --- Third-party imports ---
 from rich.panel import Panel
 
 # --- Local application imports ---
-from .common import *
-from .configuration import *
-from .data_classes import *
-from .support_functions import *
-from .validators import *
-
-__all__ = [
-    "operation1",
-    "operation2",
-    "operation3",
-]
+from .common import DEFAULT_QY_STYLE, SCRIPT_CERT_DIR, STEP_BIN, console, logger, qy
+from .configuration import config
+from .data_classes import (
+    CertificateRequestInfo,
+    CRI_ECCurve,
+    CRI_KeyAlgorithm,
+    CRI_OKPCurve,
+    CRI_OutputFormat,
+    CRI_RSAKeySize,
+)
+from .support_functions_ca import (
+    check_ca_health,
+    execute_certificate_request,
+    get_ca_root_info,
+)
+from .support_functions_certificates import (
+    choose_cert_from_list,
+    convert_certificate,
+    delete_linux_cert_by_path,
+    delete_windows_cert_by_thumbprint,
+    find_linux_cert_by_sha256,
+    find_linux_certs_by_name,
+    find_windows_cert_by_sha256,
+    find_windows_certs_by_name,
+)
+from .support_functions_general import execute_step_command
+from .support_functions_paths import join_safe_path
+from .validators import (
+    CertificateSubjectNameValidator,
+    HostnameOrIPAddressAndOptionalPortValidator,
+    SHA256OrNameValidator,
+    SHA256Validator,
+)
 
 
 def operation1():
@@ -509,39 +530,35 @@ def operation3():
 
     try:
         if result.certificate and result.private_key:
+            final_crt_path = join_safe_path(
+                target_dir=cri.final_output_dir,
+                target_file_name_with_suffix=cri.final_crt_output_name_with_suffix,
+            )
+            final_key_path = join_safe_path(
+                target_dir=cri.final_output_dir,
+                target_file_name_with_suffix=cri.final_key_output_name_with_suffix,
+            )
             # Move the files to their final destination
-            final_crt_path = get_final_path(
-                base_dir=cri.final_output_dir,
-                # The file name is the subject name with the suffix
-                file_name_with_suffix=f"{cri.subject_name}{result.certificate.suffix}",
-            )
-            final_key_path = get_final_path(
-                base_dir=cri.final_output_dir,
-                # The file name is the subject name with the suffix
-                file_name_with_suffix=f"{cri.subject_name}{result.private_key.suffix}",
-            )
             result.certificate.rename(final_crt_path)
             result.private_key.rename(final_key_path)
             logger.info(f"Certificate saved to '{final_crt_path}'.")
             logger.info(f"Private key saved to '{final_key_path}'.")
 
         elif result.pem_bundle:
-            # Move the files to their final destination
-            final_pem_bundle_path = get_final_path(
-                base_dir=cri.final_output_dir,
-                # The file name is the subject name with the suffix
-                file_name_with_suffix=f"{cri.subject_name}{result.pem_bundle.suffix}",
+            final_pem_bundle_path = join_safe_path(
+                target_dir=cri.final_output_dir,
+                target_file_name_with_suffix=cri.final_pem_bundle_output_name_with_suffix,
             )
+            # Move the file to its final destination
             result.pem_bundle.rename(final_pem_bundle_path)
             logger.info(f"PEM bundle saved to '{final_pem_bundle_path}'.")
 
         elif result.pfx:
-            # Move the files to their final destination
-            final_pfx_path = get_final_path(
-                base_dir=cri.final_output_dir,
-                # The file name is the subject name with the suffix
-                file_name_with_suffix=f"{cri.subject_name}{result.pfx.suffix}",
+            final_pfx_path = join_safe_path(
+                target_dir=cri.final_output_dir,
+                target_file_name_with_suffix=cri.final_pfx_bundle_output_name_with_suffix,
             )
+            # Move the file to its final destination
             result.pfx.rename(final_pfx_path)
             logger.info(f"PFX saved to '{final_pfx_path}'.")
 

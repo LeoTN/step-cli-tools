@@ -6,17 +6,11 @@ from importlib.metadata import PackageNotFoundError, version
 # --- Third-party imports ---
 from rich.logging import RichHandler
 
-# Allows the script to be run directly and still find the package modules
-if __name__ == "__main__" and __package__ is None:
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    sys.path.insert(0, parent_dir)
-    __package__ = "step_cli_tools"
-
 # --- Local application imports ---
-from .common import *
-from .configuration import *
-from .operations import *
-from .support_functions import *
+from .common import DEFAULT_QY_STYLE, STEP_BIN, console, logger, qy
+from .configuration import check_and_repair_config_file, config, show_config_operations
+from .operations import operation1, operation2, operation3
+from .support_functions_general import check_for_update, install_step_cli
 
 # --- Main function ---
 
