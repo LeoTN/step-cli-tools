@@ -150,8 +150,9 @@ class CRI_OKPCurve(Enum):
 class CertificateRequestInfo:
     """Data model for a basic certificate request."""
 
-    # Core fields
-    subject_name: str
+    # Backing field for subject_name (do not access directly)
+    _subject_name: str = field(repr=False)
+
     output_format: CRI_OutputFormat
 
     # SAN entries (always available after __post_init__)
@@ -167,7 +168,7 @@ class CertificateRequestInfo:
     valid_since: datetime | None = None
     valid_until: datetime | None = None
 
-    # Derived fields (always set in __post_init__)
+    # Derived fields (always set in __post_init__ / setter)
     final_output_dir: Path = field(init=False)
     final_crt_output_name_with_suffix: Path = field(init=False)
     final_key_output_name_with_suffix: Path = field(init=False)
@@ -181,23 +182,9 @@ class CertificateRequestInfo:
         # Output folder with timestamp
         self.final_output_dir = Path(SCRIPT_CERT_DIR) / self.timestamp
 
-        # Sanitized output file names
-        self.final_crt_output_name_with_suffix = Path(
-            sanitize_filename(f"{self.subject_name}.crt")
-        )
-        self.final_key_output_name_with_suffix = Path(
-            sanitize_filename(f"{self.subject_name}.key")
-        )
-        self.final_pem_bundle_output_name_with_suffix = Path(
-            sanitize_filename(f"{self.subject_name}.pem")
-        )
-        self.final_pfx_bundle_output_name_with_suffix = Path(
-            sanitize_filename(f"{self.subject_name}.pfx")
-        )
-
-        # Default SAN entry
-        if not self.san_entries:
-            self.san_entries = [self.subject_name]
+        # Initialize subject_name via setter to trigger synchronization logic
+        initial_subject = self._subject_name
+        self.subject_name = initial_subject
 
         # Ensure timezone awareness
         if self.valid_since and self.valid_since.tzinfo is None:
@@ -217,6 +204,51 @@ class CertificateRequestInfo:
             self.rsa_size = self.rsa_size or CRI_RSAKeySize.RSA2048
         else:
             self.ecc_curve = self.ecc_curve or CRI_ECCurve.P256
+
+    @property
+    def subject_name(self) -> str:
+        """Return the current subject name."""
+
+        return self._subject_name
+
+    @subject_name.setter
+    def subject_name(self, value: str):
+        """
+        Update subject_name and keep SAN entries and derived filenames in sync.
+        """
+
+        old_value = getattr(self, "_subject_name", None)
+        self._subject_name = value
+
+        # Update SAN entries
+        if old_value is not None:
+            # Replace old subject name occurrences
+            self.san_entries = [
+                value if entry == old_value else entry for entry in self.san_entries
+            ]
+
+        # Ensure subject_name is always present in SAN entries
+        if value not in self.san_entries:
+            self.san_entries.append(value)
+
+        # Update derived filenames
+        self._update_derived_filenames(value)
+
+    def _update_derived_filenames(self, subject_name: str):
+        """Update all filename fields derived from subject_name."""
+
+        self.final_crt_output_name_with_suffix = Path(
+            sanitize_filename(f"{subject_name}.crt")
+        )
+        self.final_key_output_name_with_suffix = Path(
+            sanitize_filename(f"{subject_name}.key")
+        )
+        self.final_pem_bundle_output_name_with_suffix = Path(
+            sanitize_filename(f"{subject_name}.pem")
+        )
+        self.final_pfx_bundle_output_name_with_suffix = Path(
+            sanitize_filename(f"{subject_name}.pfx")
+        )
 
     def validate(self):
         if not self.subject_name:

@@ -1,3 +1,3 @@
 /dist
-step_cli_tools/__pycache__
+__pycache__/
 poetry.lock

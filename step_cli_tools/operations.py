@@ -3,6 +3,7 @@ import platform
 import re
 from enum import Enum
 from pathlib import Path
+from typing import TypeVar
 
 # --- Third-party imports ---
 from rich.panel import Panel
@@ -10,14 +11,8 @@ from rich.panel import Panel
 # --- Local application imports ---
 from .common import DEFAULT_QY_STYLE, SCRIPT_CERT_DIR, STEP_BIN, console, logger, qy
 from .configuration import config
-from .data_classes import (
-    CertificateRequestInfo,
-    CRI_ECCurve,
-    CRI_KeyAlgorithm,
-    CRI_OKPCurve,
-    CRI_OutputFormat,
-    CRI_RSAKeySize,
-)
+from .customized_parts_questionary.select import CUSTOMIZED_select
+from .data_classes import CertificateRequestInfo, CRI_OutputFormat
 from .support_functions_ca import (
     check_ca_health,
     execute_certificate_request,
@@ -41,6 +36,9 @@ from .validators import (
     SHA256OrNameValidator,
     SHA256Validator,
 )
+
+# Type variable for objects like CRI_OutputFormat, CRI_KeyAlgorithm, etc.
+TEnum = TypeVar("TEnum", bound=Enum)
 
 
 def operation1():
@@ -300,6 +298,7 @@ def operation3():
         Returns:
             List of questionary.Choice objects.
         """
+
         choices = []
         for item in enum_class:
             # Skip items without a proper name or description
@@ -313,7 +312,36 @@ def operation3():
                         value=item,
                     )
                 )
+            else:
+                logger.debug(
+                    f"Skipping enum item '{item}' as it lacks property 'menu_item_name' or 'menu_item_description'"
+                )
         return choices
+
+    def _select_enum_option(cri_enum_obj: TEnum, message: str) -> TEnum | None:
+        """
+        Display a questionary select menu for an Enum class (usually CRI_OutputFormat or similar) and return the selected value.
+
+        Args:
+            cri_enum_obj: An instance of CRI_OutputFormat or a similar Enum class
+            message: Prompt message for the selection
+
+        Returns:
+            The selected Enum member, or None if cancelled
+        """
+
+        choices = _get_choices(type(cri_enum_obj))
+        default_choice = next((c for c in choices if c.value == cri_enum_obj), None)
+        console.print()
+        selection = CUSTOMIZED_select(
+            message=message,
+            choices=choices,
+            default=default_choice,
+            use_search_filter=True,
+            use_jk_keys=False,
+            style=DEFAULT_QY_STYLE,
+        ).ask()
+        return selection
 
     def _prompt_for_password(
         message: str = "Enter password",
@@ -333,20 +361,23 @@ def operation3():
         """
 
         for attempt in range(max_attempts):
+            console.print()
             password = qy.password(message=message, style=DEFAULT_QY_STYLE).ask()
-            if password is None:
-                return None  # User cancelled
+            if not password:
+                return None
 
+            console.print()
             confirm = qy.password(message=confirm_message, style=DEFAULT_QY_STYLE).ask()
-            if confirm is None:
-                return None  # User cancelled
+            if not confirm:
+                return None
 
             if password == confirm:
                 return password
 
             # If they don't match, ask if they want to try again
+            console.print()
             retry = qy.confirm(
-                message=f"Inputs did not match. Try again?",
+                message="Inputs did not match. Try again?",
                 style=DEFAULT_QY_STYLE,
             ).ask()
             if not retry:
@@ -379,117 +410,262 @@ def operation3():
         "ca_server_config.trust_unknow_certificates_by_default"
     )
     if not check_ca_health(ca_base_url, trust_unknown_default):
-        # Either failed or user cancelled
         return
 
-    # --- Subject Name ---
-    subject_name = qy.text(
-        message="Enter subject name",
-        validate=CertificateSubjectNameValidator,
-        style=DEFAULT_QY_STYLE,
-    ).ask()
-
-    if not subject_name or not subject_name.strip():
-        logger.info("Operation cancelled by user.")
-        return
-    subject_name = subject_name.strip()
-
-    # --- Output Format ---
-    output_format = qy.select(
-        message="Select output format",
-        choices=_get_choices(CRI_OutputFormat),
-        use_search_filter=True,
-        use_jk_keys=False,
-        style=DEFAULT_QY_STYLE,
-    ).ask()
-
-    if not output_format:
-        logger.info("Operation cancelled by user.")
-        return
-
-    # The object can now be created because the required parameters have been provided by the user
+    # Initialize CertificateRequestInfo with default values
     cri = CertificateRequestInfo(
-        subject_name=subject_name,
-        output_format=output_format,
+        _subject_name="change.me",
+        output_format=CRI_OutputFormat.PEM_CRT_KEY,
     )
 
-    # --- Optional SAN Entries ---
-    while True:
-        logger.info(f"SAN Entries: {cri.san_entries}")
-        san_entry = qy.text(
-            message="Enter additional SAN entry (leave blank to finish)",
-            validate=CertificateSubjectNameValidator(accept_blank=True),
-            style=DEFAULT_QY_STYLE,
-        ).ask()
+    # ----------------------------
+    # Start of review/edit section
+    # ----------------------------
 
-        if not san_entry or not san_entry.strip():
-            break
-        san_entry = san_entry.strip()
-        cri.san_entries.append(san_entry)
+    def _edit_san_entries(cri_obj: CertificateRequestInfo):
+        """
+        Allow adding, editing, and removing SAN entries interactively.
+        Remembers last selected menu item to restore cursor position.
+        """
 
-    # --- Key Algorithm ---
-    cri.key_algorithm = qy.select(
-        message="Select key algorithm",
-        choices=_get_choices(CRI_KeyAlgorithm),
-        use_search_filter=True,
-        use_jk_keys=False,
-        style=DEFAULT_QY_STYLE,
-    ).ask()
+        last_selected: str | None = None  # Store last selection
 
-    if not cri.key_algorithm:
-        logger.info("Operation cancelled by user.")
+        while True:
+            san_choices = [
+                qy.Choice(
+                    title=f"{i + 1}: {v}",
+                    value=i,
+                    description=(
+                        "Automatically derived from subject name and cannot be edited."
+                        if i == 0
+                        else None
+                    ),
+                )
+                for i, v in enumerate(cri_obj.san_entries)
+            ]
+            san_choices.append(
+                qy.Choice(title="Add", description="Add a new SAN entry.", value="add")
+            )
+            # Only show "Clear All" if there are multiple entries
+            if len(cri_obj.san_entries) > 1:
+                san_choices.append(
+                    qy.Choice(
+                        title="Clear All",
+                        description="Clear all additional SAN entries.",
+                        value="clear",
+                    )
+                )
+            elif last_selected == "clear":
+                # Reset if "Clear All" was last selected but is no longer available
+                last_selected = None
+            san_choices.append(qy.Choice(title="Save", value="save"))
+
+            console.print()
+            choice = CUSTOMIZED_select(
+                message="Edit SAN entries",
+                choices=san_choices,
+                default=last_selected,  # Restore cursor position
+                use_search_filter=True,
+                use_jk_keys=False,
+                style=DEFAULT_QY_STYLE,
+            ).ask()
+
+            if not choice or choice == "save":
+                return
+
+            # Store last selected value
+            last_selected = choice
+
+            if choice == "add":
+                console.print()
+                new_san = qy.text(
+                    message="Enter SAN entry (leave blank to cancel)",
+                    validate=CertificateSubjectNameValidator(accept_blank=True),
+                    style=DEFAULT_QY_STYLE,
+                ).ask()
+                if new_san and not new_san.strip() == "":
+                    cri_obj.san_entries.append(new_san.strip())
+
+            elif choice == "clear":
+                console.print()
+                confirm = qy.confirm(
+                    message="Clear all SAN entries?",
+                    style=DEFAULT_QY_STYLE,
+                ).ask()
+                if confirm:
+                    cri_obj.san_entries.clear()
+                    # Re-add subject name to generate default SAN entry
+                    cri_obj.subject_name = cri_obj.subject_name
+
+            elif isinstance(choice, int):
+                current = cri_obj.san_entries[choice]
+                console.print()
+                edited = qy.text(
+                    message="Edit SAN entry (leave blank to delete)",
+                    default=current,
+                    validate=CertificateSubjectNameValidator(accept_blank=True),
+                    style=DEFAULT_QY_STYLE,
+                ).ask()
+                # User cancelled (allow empty input for deletion)
+                if edited is None:
+                    continue
+
+                edited_stripped = edited.strip()
+                # Delete if blank
+                if edited_stripped == "":
+                    cri_obj.san_entries.pop(choice)
+                    # Reset last selected if it was deleted
+                    if last_selected == choice:
+                        last_selected = None
+                else:
+                    cri_obj.san_entries[choice] = edited_stripped
+
+    def _review_and_edit(cri_obj: CertificateRequestInfo) -> bool:
+        """
+        Review and optionally edit CertificateRequestInfo fields.
+        Remembers last selected position for main menu and submenus
+        """
+
+        last_selected_main: str | None = None
+
+        while True:
+            # Build main menu
+            choices = [
+                qy.Choice(
+                    title=f"Subject Name: {cri_obj.subject_name}",
+                    description="The main subject name for the certificate.",
+                    value="subject_name",
+                ),
+                qy.Choice(
+                    title=f"Output Format: {cri_obj.output_format.value.menu_item_name}",
+                    description="Output format for the certificate file(s).",
+                    value="output_format",
+                ),
+                qy.Choice(
+                    title=f"SAN Entries: {len(cri_obj.san_entries)}",
+                    description="The subject alternative names for the certificate.",
+                    value="san_entries",
+                ),
+                qy.Choice(
+                    title=f"Key Algorithm: {cri_obj.key_algorithm.value.menu_item_name}",
+                    description="The algorithm used for the private key.",
+                    value="key_algorithm",
+                ),
+            ]
+
+            if cri_obj.is_key_algorithm_ec():
+                choices.append(
+                    qy.Choice(
+                        title=f"EC Curve: {cri_obj.ecc_curve.value.menu_item_name}",
+                        value="ecc_curve",
+                    )
+                )
+            if cri_obj.is_key_algorithm_rsa():
+                choices.append(
+                    qy.Choice(
+                        title=f"RSA Key Size: {cri_obj.rsa_size.value.menu_item_name}",
+                        value="rsa_size",
+                    )
+                )
+            if cri_obj.is_key_algorithm_okp():
+                choices.append(
+                    qy.Choice(
+                        title=f"OKP Curve: {cri_obj.okp_curve.value.menu_item_name}",
+                        value="okp_curve",
+                    )
+                )
+
+            choices.extend(
+                [
+                    qy.Choice(title="Proceed", value="proceed"),
+                    qy.Choice(title="Exit", value="exit"),
+                ]
+            )
+
+            # Main menu selection
+            console.print()
+            answer = CUSTOMIZED_select(
+                message="Review and edit certificate request",
+                choices=choices,
+                default=last_selected_main,
+                use_search_filter=True,
+                use_jk_keys=False,
+                style=DEFAULT_QY_STYLE,
+            ).ask()
+
+            if answer:
+                last_selected_main = answer
+
+            if not answer or answer == "exit":
+                logger.info("Operation cancelled by user.")
+                return False
+
+            if answer == "proceed":
+                try:
+                    cri_obj.validate()
+                except Exception as e:
+                    logger.error(f"Invalid certificate request configuration: {e}")
+                    continue
+                return True
+
+            # Submenu: Subject Name
+            if answer == "subject_name":
+                console.print()
+                value = qy.text(
+                    message="Enter subject name",
+                    default=cri_obj.subject_name,
+                    validate=CertificateSubjectNameValidator,
+                    style=DEFAULT_QY_STYLE,
+                ).ask()
+                if value:
+                    cri_obj.subject_name = value.strip()
+
+            # Submenu: Output Format
+            elif answer == "output_format":
+                value = _select_enum_option(
+                    cri_obj.output_format, "Select output format"
+                )
+                if value:
+                    cri_obj.output_format = value
+
+            # Submenu: Validity
+            # WIP
+
+            # Submenu: SAN Entries
+            elif answer == "san_entries":
+                _edit_san_entries(cri_obj)
+
+            # Submenu: Key Algorithm
+            elif answer == "key_algorithm":
+                value = _select_enum_option(
+                    cri_obj.key_algorithm, "Select key algorithm"
+                )
+                if value:
+                    cri_obj.key_algorithm = value
+
+            # Submenu: EC Curve
+            elif answer == "ecc_curve" and cri_obj.is_key_algorithm_ec():
+                value = _select_enum_option(cri_obj.ecc_curve, "Select EC curve")
+                if value:
+                    cri_obj.ecc_curve = value
+
+            # Submenu: RSA Size
+            elif answer == "rsa_size" and cri_obj.is_key_algorithm_rsa():
+                value = _select_enum_option(cri_obj.rsa_size, "Select RSA key size")
+                if value:
+                    cri_obj.rsa_size = value
+
+            # Submenu: OKP Curve
+            elif answer == "okp_curve" and cri_obj.is_key_algorithm_okp():
+                value = _select_enum_option(cri_obj.okp_curve, "Select OKP curve")
+                if value:
+                    cri_obj.okp_curve = value
+
+    proceed = _review_and_edit(cri)
+    if not proceed:
         return
 
-    # --- ECC Curve ---
-    if cri.is_key_algorithm_ec():
-        cri.ecc_curve = qy.select(
-            message="Select EC curve",
-            choices=_get_choices(CRI_ECCurve),
-            use_search_filter=True,
-            use_jk_keys=False,
-            style=DEFAULT_QY_STYLE,
-        ).ask()
-
-        if not cri.ecc_curve:
-            logger.info("Operation cancelled by user.")
-            return
-
-    # --- RSA Key Size ---
-    if cri.is_key_algorithm_rsa():
-        cri.rsa_size = qy.select(
-            message="Select RSA key size",
-            choices=_get_choices(CRI_RSAKeySize),
-            use_search_filter=True,
-            use_jk_keys=False,
-            style=DEFAULT_QY_STYLE,
-        ).ask()
-
-        if not cri.rsa_size:
-            logger.info("Operation cancelled by user.")
-            return
-
-    # --- OKP Curve ---
-    if cri.is_key_algorithm_okp():
-        # There is only one option at the moment
-        cri.okp_curve = CRI_OKPCurve.Ed25519
-        """ cri.okp_curve = qy.select(
-            message="Select OKP curve",
-            choices=_get_choices(CRI_OKPCurve),
-            use_search_filter=True,
-            use_jk_keys=False,
-            style=DEFAULT_QY_STYLE,
-        ).ask() """
-
-        if not cri.okp_curve:
-            logger.info("Operation cancelled by user.")
-            return
-
-    # --- Validity Start Date ---
-    # WIP
-    # --- Validity End Date ---
-    # WIP
-
-    # --- Optional PEM Key Encryption ---
+    # After finalizing options, ask for optional key password depending on output format
     key_password = None
     if cri.is_output_format_pem():
         key_password = _prompt_for_password(
@@ -497,13 +673,17 @@ def operation3():
             confirm_message="Confirm key password",
         )
 
-    # -- Optional PFX Encryption
+    # Optional PFX Encryption
     pfx_password = None
     if cri.is_output_format_pfx():
         pfx_password = _prompt_for_password(
             message="Enter PFX password (leave blank for no password)",
             confirm_message="Confirm PFX password",
         )
+
+    # --------------------------
+    # End of review/edit section
+    # --------------------------
 
     result = execute_certificate_request(cri, ca_base_url)
     if not result:
