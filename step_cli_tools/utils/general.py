@@ -1,6 +1,5 @@
 # --- Standard library imports ---
 import json
-import os
 import platform
 import shutil
 import subprocess
@@ -34,7 +33,7 @@ def check_for_update(
         The latest version string if a newer version exists, otherwise None.
     """
 
-    cache = Path(SCRIPT_CACHE_DIR)
+    cache = SCRIPT_CACHE_DIR / f"{pkg_name}_update_check_cache.json"
     cache.parent.mkdir(parents=True, exist_ok=True)
     now = time.time()
     current_parsed_version = version.parse(current_pkg_version)
@@ -105,7 +104,7 @@ def check_for_update(
         return
 
 
-def install_step_cli(step_bin: str):
+def install_step_cli(step_bin: Path):
     """
     Download and install the step-cli binary for the current platform.
 
@@ -115,8 +114,8 @@ def install_step_cli(step_bin: str):
 
     system = platform.system()
     arch = platform.machine()
-    logger.info(f"Detected platform: {system} {arch}")
-    logger.info(f"Target installation path: {step_bin}")
+    logger.debug(f"Detected platform: {system} {arch}")
+    logger.debug(f"Target installation path: {step_bin}")
 
     if system == "Windows":
         url = "https://github.com/smallstep/cli/releases/latest/download/step_windows_amd64.zip"
@@ -131,16 +130,16 @@ def install_step_cli(step_bin: str):
         logger.error(f"Unsupported platform: {system}")
         return
 
-    tmp_dir = tempfile.mkdtemp()
-    tmp_path = os.path.join(tmp_dir, os.path.basename(url))
-    logger.info(f"Downloading step-cli from '{url}'...")
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / Path(url).name
+    logger.debug(f"Downloading step-cli from '{url}'...")
 
-    with urlopen(url) as response, open(tmp_path, "wb") as out_file:
+    with urlopen(url) as response, tmp_path.open("wb") as out_file:
         out_file.write(response.read())
 
     logger.debug(f"Archive downloaded to temporary path: {tmp_path}")
 
-    logger.info(f"Extracting '{archive_type}' archive...")
+    logger.debug(f"Extracting '{archive_type}' archive...")
     if archive_type == "zip":
         with ZipFile(tmp_path, "r") as zip_ref:
             zip_ref.extractall(tmp_dir)
@@ -148,84 +147,88 @@ def install_step_cli(step_bin: str):
         with tarfile.open(tmp_path, "r:gz") as tar_ref:
             tar_ref.extractall(tmp_dir)
 
-    step_bin_name = os.path.basename(step_bin)
-
     # Search recursively for the binary
-    matches = []
-    for root, _, files in os.walk(tmp_dir):
-        if step_bin_name in files:
-            found_path = os.path.join(root, step_bin_name)
-            matches.append(found_path)
+    matches = [p for p in tmp_dir.rglob(step_bin.name)]
 
     if not matches:
-        logger.error(f"Could not find '{step_bin_name}' in the extracted archive.")
+        logger.error(f"Could not find '{step_bin.name}' in the extracted archive.")
         return
 
-    extracted_path = matches[0]  # Take the first found binary
+    extracted_path = matches[0]
     logger.debug(f"Using extracted binary: {extracted_path}")
 
     # Prepare installation path
-    binary_dir = os.path.dirname(step_bin)
-    os.makedirs(binary_dir, exist_ok=True)
+    step_bin.parent.mkdir(parents=True, exist_ok=True)
 
     # Delete old binary if exists
-    if os.path.exists(step_bin):
+    if step_bin.exists():
         logger.debug("Removing existing step binary")
-        os.remove(step_bin)
+        step_bin.unlink()
 
-    shutil.move(extracted_path, step_bin)
-    os.chmod(step_bin, 0o755)
+    shutil.move(str(extracted_path), str(step_bin))
+    step_bin.chmod(0o755)
 
-    logger.info(f"step-cli installed: {step_bin}")
+    logger.debug(f"step-cli binary: {step_bin}")
 
     try:
-        result = subprocess.run([step_bin, "version"], capture_output=True, text=True)
-        logger.info(f"Installed step version:\n{result.stdout.strip()}")
+        result = subprocess.run(
+            [str(step_bin), "version"], capture_output=True, text=True
+        )
+        logger.info(result.stdout.strip())
     except Exception as e:
         logger.error(f"Failed to run step-cli: {e}")
 
 
-def execute_step_command(args, step_bin: str, interactive: bool = False) -> str | None:
+def execute_step_command(
+    args: list[str], step_bin: Path, interactive: bool = False
+) -> tuple[bool, str | None]:
     """
     Execute a step-cli command and return output or log errors.
 
     Args:
-        args: List of command arguments to pass to step-cli.
-        step_bin: Path to the step binary.
-        interactive: If True, run the command interactively without capturing output.
+        args: List of command-line arguments for step-cli.
+        step_bin: Path to the step-cli binary.
+        interactive: Whether to run the command interactively.
 
     Returns:
-        Command output as a string if successful, otherwise None.
+        Tuple of (success, output)
+            - success: True if the command executed successfully
+            - output: Captured stdout if non-interactive, otherwise None
     """
 
     logger.debug(locals())
 
-    if not step_bin or not os.path.exists(step_bin):
+    if not step_bin.exists():
         logger.error("step-cli not found. Please install it first.")
-        return
+        return False, None
 
     try:
-        if interactive:
-            logger.info("--- Interactive step-cli mode start ---")
-            result = subprocess.run([step_bin] + args)
-            logger.info("--- Interactive step-cli mode end ---")
-            logger.debug(f"step-cli command exit code: {result.returncode}")
+        result = subprocess.run(
+            [step_bin] + args,
+            capture_output=not interactive,
+            text=True,
+        )
 
-            if result.returncode != 0:
-                logger.error(f"step-cli command exit code: {result.returncode}")
-                return
+        logger.debug(f"step-cli command exit code: {result.returncode}")
+        if not interactive:
+            if result.stdout:
+                logger.debug(f"step-cli command stdout: {result.stdout.strip()}")
+            if result.stderr:
+                logger.debug(f"step-cli command stderr: {result.stderr.strip()}")
 
-            return "Interactive command executed successfully."
-        else:
-            result = subprocess.run([step_bin] + args, capture_output=True, text=True)
-            logger.debug(f"step-cli command exit code: {result.returncode}")
+        if result.returncode != 0:
+            error_msg = (
+                f"step-cli command exit code: {result.returncode}"
+                if interactive
+                else f"step-cli command failed: {result.stderr.strip()}"
+            )
+            logger.error(error_msg)
+            return False, (
+                result.stdout.strip() if not interactive and result.stdout else None
+            )
 
-            if result.returncode != 0:
-                logger.error(f"step-cli command failed: {result.stderr.strip()}")
-                return
-
-            return result.stdout.strip()
+        return True, None if interactive else result.stdout.strip()
 
     except Exception as e:
         logger.error(f"Failed to execute step-cli command: {e}")
-        return
+        return False, None

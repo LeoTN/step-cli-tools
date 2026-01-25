@@ -180,7 +180,7 @@ class CertificateRequestInfo:
         self.timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
 
         # Output folder with timestamp
-        self.final_output_dir = Path(SCRIPT_CERT_DIR) / self.timestamp
+        self.final_output_dir = SCRIPT_CERT_DIR / self.timestamp
 
         # Initialize subject_name via setter to trigger synchronization logic
         initial_subject = self._subject_name

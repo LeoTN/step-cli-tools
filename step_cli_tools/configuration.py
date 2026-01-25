@@ -28,7 +28,7 @@ yaml.preserve_quotes = True
 
 
 class Configuration:
-    def __init__(self, file_location: str, schema: dict, autosave: bool = True):
+    def __init__(self, file_location: Path, schema: dict, autosave: bool = True):
         """
         Initialize Configuration object. Note, that the load() method MUST be called manually once.
 
@@ -37,7 +37,7 @@ class Configuration:
             schema: Dictionary defining the config schema with types, defaults, validators, and comments.
             autosave: Automatically save after each set() call if True.
         """
-        self.file_location = Path(file_location)
+        self.file_location = file_location
         self.file_location.parent.mkdir(parents=True, exist_ok=True)
         self.schema = schema
         self.autosave = autosave
@@ -441,9 +441,8 @@ def check_and_repair_config_file():
     """Ensure the config file exists and is valid. Allow repair/edit/reset if invalid."""
 
     # Generate default config if missing
-    if not os.path.exists(config.file_location):
+    if not config.file_location.exists():
         config.generate_default()
-        logger.info("A default config file has been generated.")
 
     automatic_repair_failed = False
 
@@ -587,7 +586,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
         # else: loop continues for "Edit again"
 
 
-def open_in_editor(file_path: str | Path):
+def open_in_editor(file_path: Path):
     """
     Open the given file in the user's preferred text editor and wait until it is closed.
 
@@ -597,7 +596,7 @@ def open_in_editor(file_path: str | Path):
       - On Linux: tries common editors (nano, vim) or falls back to xdg-open (non-blocking).
     """
 
-    path = Path(file_path).expanduser().resolve()
+    path = file_path.expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
@@ -606,33 +605,33 @@ def open_in_editor(file_path: str | Path):
     # --- Windows ---
     if platform.system() == "Windows":
         if editor:
-            subprocess.run([editor, str(path)], check=False)
+            subprocess.run([editor, path], check=False)
         else:
             # notepad blocks until file is closed
-            subprocess.run(["notepad", str(path)], check=False)
+            subprocess.run(["notepad", path], check=False)
         return
 
     # --- macOS ---
     if platform.system() == "Darwin":
         if editor:
-            subprocess.run([editor, str(path)], check=False)
+            subprocess.run([editor, path], check=False)
         else:
             # `open -W` waits until the app is closed
-            subprocess.run(["open", "-W", "-t", str(path)], check=False)
+            subprocess.run(["open", "-W", "-t", path], check=False)
         return
 
     # --- Linux / Unix ---
     if platform.system() == "Linux":
         if editor:
-            subprocess.run([editor, str(path)], check=False)
+            subprocess.run([editor, path], check=False)
             return
         # try common console editors
         for candidate in ["nano", "vim", "vi"]:
             if shutil.which(candidate):
-                subprocess.run([candidate, str(path)], check=False)
+                subprocess.run([candidate, path], check=False)
                 return
         # fallback: GUI open (non-blocking)
-        subprocess.Popen(["xdg-open", str(path)])
+        subprocess.Popen(["xdg-open", path])
         logger.info("File opened in default GUI editor. Please close it manually.")
         input("Press Enter here when you're done editing...")
 
@@ -662,7 +661,7 @@ def reset_with_feedback():
 
 
 # --- Config file defintions ---
-config_file_location = os.path.join(SCRIPT_HOME_DIR, "config.yml")
+config_file_location = SCRIPT_HOME_DIR / "config.yml"
 config_schema = {
     "update_config": {
         "check_for_updates_at_launch": {

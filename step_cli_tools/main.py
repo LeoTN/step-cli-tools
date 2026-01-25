@@ -1,5 +1,4 @@
 # --- Standard library imports ---
-import os
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
@@ -7,7 +6,7 @@ from importlib.metadata import PackageNotFoundError, version
 from rich.logging import RichHandler
 
 # --- Local application imports ---
-from .common import DEFAULT_QY_STYLE, STEP_BIN, console, logger, qy
+from .common import ALL_DIRS, DEFAULT_QY_STYLE, STEP_BIN, console, logger, qy
 from .configuration import check_and_repair_config_file, config, show_config_operations
 from .operations import operation1, operation2, operation3
 from .utils.general import check_for_update, install_step_cli
@@ -30,6 +29,11 @@ def main():
     textArray = ["", "#" * len(bannerText), bannerText, "#" * len(bannerText), ""]
     for text in textArray:
         logger.info(text)
+    # Ensure necessary directories exist
+    for directory in ALL_DIRS:
+        if not directory.exists():
+            logger.debug(f"Creating directory: {directory}")
+            directory.mkdir(parents=True)
     # Unmute console logging
     for handler in logger.handlers:
         if isinstance(handler, RichHandler):
@@ -89,10 +93,10 @@ def main():
     console.print(version_text)
 
     # Ensure step-cli is installed
-    if not os.path.exists(STEP_BIN):
+    if not STEP_BIN.exists():
         console.print()
         answer = qy.confirm(
-            message="step-cli not found. Do you want to install it now?",
+            message="step-cli binary not found. Do you want to download it now?",
             style=DEFAULT_QY_STYLE,
         ).ask()
         if answer:

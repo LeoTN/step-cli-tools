@@ -1,11 +1,11 @@
 # --- Standard library imports --- #
 import base64
 import json
-import os
 import re
 import subprocess
 import warnings
 from pathlib import Path
+from typing import TypeVar
 
 # --- Third-party imports --- #
 from cryptography import x509
@@ -19,6 +19,9 @@ from cryptography.utils import CryptographyDeprecationWarning
 # --- Local application imports --- #
 from ..common import DEFAULT_QY_STYLE, console, logger, qy
 from ..models.data import CertificateConversionResult, CRI_OutputFormat
+
+# Used for the choose_cert_from_list() function
+TPathOrStr = TypeVar("TPathOrStr", Path, str)
 
 
 def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
@@ -162,7 +165,7 @@ def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     return matches
 
 
-def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
+def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[Path, str] | None:
     """
     Search the Linux system trust store for a certificate matching a given SHA256 fingerprint.
 
@@ -179,10 +182,10 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
 
     logger.debug(f"Starting Linux certificate search by SHA256: {sha256_fingerprint}")
 
-    cert_dir = "/etc/ssl/certs"
+    cert_dir = Path("/etc/ssl/certs")
     fingerprint = sha256_fingerprint.lower().replace(":", "")
 
-    if not os.path.isdir(cert_dir):
+    if not cert_dir.is_dir():
         logger.error(f"Cert directory not found: {cert_dir}")
         return
 
@@ -190,36 +193,36 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
-        for cert_file in os.listdir(cert_dir):
-            path = os.path.join(cert_dir, cert_file)
-            if os.path.isfile(path):
+        for cert_file in cert_dir.iterdir():
+            if cert_file.is_file():
                 try:
-                    logger.debug(f"Reading certificate file: {path}")
-                    with open(path, "rb") as f:
-                        cert_data = f.read()
-                        try:
-                            # Try PEM first
-                            cert = x509.load_pem_x509_certificate(
-                                cert_data, default_backend()
-                            )
-                        except ValueError:
-                            # Fallback to DER
-                            cert = x509.load_der_x509_certificate(
-                                cert_data, default_backend()
-                            )
-                        fp = cert.fingerprint(hashes.SHA256()).hex()
-                        if fp.lower() == fingerprint:
-                            logger.debug("Matching Linux certificate found")
-                            return (path, cert.subject.rfc4514_string())
+                    logger.debug(f"Reading certificate file: {cert_file}")
+                    cert_data = cert_file.read_bytes()
+                    try:
+                        # Try PEM first
+                        cert = x509.load_pem_x509_certificate(
+                            cert_data, default_backend()
+                        )
+                    except ValueError:
+                        # Fallback to DER
+                        cert = x509.load_der_x509_certificate(
+                            cert_data, default_backend()
+                        )
+                    fp = cert.fingerprint(hashes.SHA256()).hex()
+                    if fp.lower() == fingerprint:
+                        logger.debug("Matching Linux certificate found")
+                        return cert_file, cert.subject.rfc4514_string()
                 except Exception as e:
-                    logger.debug(f"Failed to process certificate file '{path}': {e}")
+                    logger.debug(
+                        f"Failed to process certificate file '{cert_file}': {e}"
+                    )
                     continue
 
     logger.debug("No matching Linux certificate found")
     return
 
 
-def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
+def find_linux_certs_by_name(name_pattern: str) -> list[tuple[Path, str]]:
     """
     Search Linux trust store for certificates by name.
     Supports simple wildcard '*' and matches separately against
@@ -230,13 +233,13 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
         name_pattern: Name or partial name to search (wildcard * allowed).
 
     Returns:
-        List of tuples (path, subject) for all matching certificates.
+        List of tuples (Path, subject) for all matching certificates.
     """
 
     logger.debug(f"Starting Linux certificate search by name pattern: {name_pattern}")
 
-    cert_dir = "/etc/ssl/certs"
-    if not os.path.isdir(cert_dir):
+    cert_dir = Path("/etc/ssl/certs")
+    if not cert_dir.is_dir():
         logger.error(f"Cert directory not found: {cert_dir}")
         return []
 
@@ -244,19 +247,18 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     escaped_pattern = re.escape(name_pattern).replace(r"\*", ".*")
     pattern_re = re.compile(f"^{escaped_pattern}$", re.IGNORECASE)
 
-    matches = []
-    seen_real_paths: set[str] = set()
+    matches: list[tuple[Path, str]] = []
+    seen_real_paths: set[Path] = set()
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
-        for cert_file in os.listdir(cert_dir):
-            path = os.path.join(cert_dir, cert_file)
-            if not os.path.isfile(path):
+        for cert_file in cert_dir.iterdir():
+            if not cert_file.is_file():
                 continue
 
             try:
-                real_path = os.path.realpath(path)
+                real_path = cert_file.resolve()
 
                 # Skip duplicate certificates pointing to the same real file
                 if real_path in seen_real_paths:
@@ -264,35 +266,29 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
                     continue
                 seen_real_paths.add(real_path)
 
-                logger.debug(f"Processing certificate file: {path}")
+                logger.debug(f"Processing certificate file: {cert_file}")
 
-                with open(path, "rb") as f:
-                    cert_data = f.read()
-                    try:
-                        # PEM support
-                        cert = x509.load_pem_x509_certificate(
-                            cert_data, default_backend()
-                        )
-                    except ValueError:
-                        # Fallback to DER
-                        cert = x509.load_der_x509_certificate(
-                            cert_data, default_backend()
-                        )
-                    subject_str = cert.subject.rfc4514_string()
-                    components = [comp.strip() for comp in subject_str.split(",")]
+                cert_data = cert_file.read_bytes()
+                try:
+                    # PEM support
+                    cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+                except ValueError:
+                    # Fallback to DER
+                    cert = x509.load_der_x509_certificate(cert_data, default_backend())
 
-                    for comp in components:
-                        match = re.match(
-                            r"^(?:CN|O|OU|C|DC)=(.*)$", comp, re.IGNORECASE
-                        )
-                        value = match.group(1).strip() if match else comp
-                        if pattern_re.match(value):
-                            logger.debug("Name pattern matched certificate")
-                            matches.append((path, subject_str))
-                            break
+                subject_str = cert.subject.rfc4514_string()
+                components = [comp.strip() for comp in subject_str.split(",")]
+
+                for comp in components:
+                    match = re.match(r"^(?:CN|O|OU|C|DC)=(.*)$", comp, re.IGNORECASE)
+                    value = match.group(1).strip() if match else comp
+                    if pattern_re.match(value):
+                        logger.debug("Name pattern matched certificate")
+                        matches.append((cert_file, subject_str))
+                        break
 
             except Exception as e:
-                logger.debug(f"Failed to process certificate file '{path}': {e}")
+                logger.debug(f"Failed to process certificate file '{cert_file}': {e}")
                 continue
 
     logger.debug(f"Total matching Linux certificates found: {len(matches)}")
@@ -313,7 +309,7 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
 
     console.print()
     answer = qy.confirm(
-        message=f"Do you really want to remove the certificate: '{cn}'?",
+        message=f"Do you really want to remove the certificate '{cn}'?",
         default=False,
         style=DEFAULT_QY_STYLE,
     ).ask()
@@ -415,7 +411,7 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
     logger.error(f"Failed to remove certificate with thumbprint '{thumbprint}'")
 
 
-def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
+def delete_linux_cert_by_path(cert_path: Path, cn: str, elevated: bool = False):
     """
     Delete a certificate from the Linux system trust store.
 
@@ -425,7 +421,6 @@ def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
         elevated: Whether to execute commands with elevated privileges.
     """
 
-    cert_path_obj = Path(cert_path)
     local_dir = Path("/usr/local/share/ca-certificates").resolve()
     package_dir = Path("/usr/share/ca-certificates").resolve()
     ca_conf_path = Path("/etc/ca-certificates.conf")
@@ -455,7 +450,7 @@ def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
 
     console.print()
     answer = qy.confirm(
-        message=f"Do you really want to remove the certificate: '{cn}'?",
+        message=f"Do you really want to remove the certificate '{cn}'?",
         default=False,
         style=DEFAULT_QY_STYLE,
     ).ask()
@@ -463,11 +458,11 @@ def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
         logger.info("Operation cancelled by user.")
         return
 
-    if not cert_path_obj.is_symlink():
+    if not cert_path.is_symlink():
         logger.warning(f"'{cert_path}' is not a symlink, skipping.")
         return
 
-    target_path = cert_path_obj.resolve()
+    target_path = cert_path.resolve()
     logger.debug(f"Resolved symlink target: {target_path}")
 
     try:
@@ -558,14 +553,14 @@ def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
 
 
 def choose_cert_from_list(
-    certs: list[tuple[str, str]], message: str = "Select a certificate:"
-) -> tuple[str, str] | None:
+    certs: list[tuple[TPathOrStr, str]], message: str = "Select a certificate:"
+) -> tuple[TPathOrStr, str] | None:
     """
-    Presents an alphabetically sorted list of certificates to the user and returns the chosen tuple (fingerprint/path, subject).
+    Presents an alphabetically sorted list of certificates to the user and returns the chosen tuple (Path/thumbprint, subject).
 
     Args:
-        certs: List of tuples (id, subject) to choose from.
-        message: message text for the questionary select.
+        certs: List of tuples (Path/thumbprint, subject) to choose from.
+        message: A message text for the questionary select.
 
     Returns:
         The selected tuple or None if user cancels.

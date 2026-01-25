@@ -1,8 +1,8 @@
 # --- Standard library imports ---
 import logging
-import os
 import platform
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 # --- Third-party imports ---
 import questionary
@@ -31,30 +31,37 @@ DEFAULT_QY_STYLE = qy.Style(
 )
 
 # --- Directories and files ---
-SCRIPT_HOME_DIR = os.path.expanduser("~/.step-cli-tools")
-SCRIPT_CACHE_DIR = os.path.normpath(os.path.join(SCRIPT_HOME_DIR, ".cache"))
-SCRIPT_CERT_DIR = os.path.normpath(os.path.join(SCRIPT_HOME_DIR, "certs"))
-SCRIPT_LOGGING_DIR = os.path.normpath(os.path.join(SCRIPT_HOME_DIR, "logs"))
+SCRIPT_HOME_DIR = Path.home() / ".step-cli-tools"
+SCRIPT_CACHE_DIR = SCRIPT_HOME_DIR / ".cache"
+SCRIPT_CERT_DIR = SCRIPT_HOME_DIR / "certs"
+SCRIPT_LOGGING_DIR = SCRIPT_HOME_DIR / "logs"
+
+ALL_DIRS = [
+    SCRIPT_HOME_DIR,
+    SCRIPT_CACHE_DIR,
+    SCRIPT_CERT_DIR,
+    SCRIPT_LOGGING_DIR,
+]
 
 
-def _get_step_binary_path() -> str:
+def _get_step_binary_path() -> Path:
     """
     Get the absolute path to the step-cli binary based on the operating system.
 
     Returns:
-        str: Absolute path to the step binary.
+        The absolute path to the step-cli binary.
     """
 
-    bin_dir = os.path.join(SCRIPT_HOME_DIR, "bin")
+    bin_dir = SCRIPT_HOME_DIR / "bin"
     system = platform.system()
     if system == "Windows":
-        binary = os.path.join(bin_dir, "step.exe")
+        binary = bin_dir / "step.exe"
     elif system in ("Linux", "Darwin"):
-        binary = os.path.join(bin_dir, "step")
+        binary = bin_dir / "step"
     else:
         raise OSError(f"Unsupported platform: {system}")
 
-    return os.path.normpath(binary)
+    return binary
 
 
 STEP_BIN = _get_step_binary_path()
@@ -64,8 +71,8 @@ STEP_BIN = _get_step_binary_path()
 
 def _setup_logger(
     name: str,
-    log_file: str = "step-cli-tools.log",
-    level=logging.DEBUG,
+    log_file: Path = SCRIPT_LOGGING_DIR / "step-cli-tools.log",
+    level: int = logging.DEBUG,
     console: Console = console,
     max_bytes: int = 5_000_000,
     backup_count: int = 5,
@@ -86,8 +93,8 @@ def _setup_logger(
     """
 
     # Ensure log directory exists
-    if os.path.dirname(log_file):
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    if log_file.parent:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
@@ -119,5 +126,4 @@ def _setup_logger(
 
 logger = _setup_logger(
     name="main",
-    log_file=os.path.join(SCRIPT_LOGGING_DIR, "step-cli-tools.log"),
 )

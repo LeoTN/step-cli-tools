@@ -115,8 +115,8 @@ def execute_certificate_request(
         return
 
     # The step-ca server can only return the certificate and key in this format
-    tmp_crt_file_path = Path(SCRIPT_CACHE_DIR) / f"{request_parameters.timestamp}.crt"
-    tmp_key_file_path = Path(SCRIPT_CACHE_DIR) / f"{request_parameters.timestamp}.key"
+    tmp_crt_file_path = SCRIPT_CACHE_DIR / f"{request_parameters.timestamp}.crt"
+    tmp_key_file_path = SCRIPT_CACHE_DIR / f"{request_parameters.timestamp}.key"
 
     args = [
         "ca",
@@ -164,8 +164,8 @@ def execute_certificate_request(
         )
 
     # Interactive because the the user will be asked for the JWK password
-    result = execute_step_command(args=args, step_bin=STEP_BIN, interactive=True)
-    if not result:
+    success, _ = execute_step_command(args=args, step_bin=STEP_BIN, interactive=True)
+    if not success:
         logger.error("Certificate request failed.")
         return
 

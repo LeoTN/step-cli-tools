@@ -2,7 +2,6 @@
 import platform
 import re
 from enum import Enum
-from pathlib import Path
 from typing import TypeVar
 
 # --- Third-party imports ---
@@ -159,8 +158,8 @@ def operation1():
         "--force",
     ]
 
-    result = execute_step_command(bootstrap_args, STEP_BIN)
-    if isinstance(result, str):
+    success, _ = execute_step_command(bootstrap_args, STEP_BIN)
+    if success:
         logger.info(
             "You may need to restart your system for the changes to take full effect."
         )
@@ -693,7 +692,7 @@ def operation3():
         result = convert_certificate(
             crt_path=crt_path,
             key_path=key_path,
-            output_dir=Path(SCRIPT_CERT_DIR),
+            output_dir=SCRIPT_CERT_DIR,
             output_format=cri.output_format,
             key_output_encryption_password=key_password,
             pfx_output_encryption_password=pfx_password,
