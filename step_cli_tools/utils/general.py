@@ -15,8 +15,8 @@ from zipfile import ZipFile
 from packaging import version
 
 # --- Local application imports ---
-from .common import SCRIPT_CACHE_DIR, logger
-from .configuration import config
+from ..common import SCRIPT_CACHE_DIR, logger
+from ..configuration import config
 
 
 def check_for_update(

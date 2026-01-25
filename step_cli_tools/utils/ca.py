@@ -12,9 +12,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import NameOID
 
 # --- Local application imports --- #
-from .common import DEFAULT_QY_STYLE, SCRIPT_CACHE_DIR, STEP_BIN, console, logger, qy
-from .data_classes import CertificateRequestInfo, RootCAInfo
-from .support_functions_general import execute_step_command
+from ..common import DEFAULT_QY_STYLE, SCRIPT_CACHE_DIR, STEP_BIN, console, logger, qy
+from ..models.data import CertificateRequestInfo, RootCAInfo
+from .general import execute_step_command
 
 
 def execute_ca_request(

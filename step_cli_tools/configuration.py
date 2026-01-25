@@ -15,7 +15,7 @@ from ruamel.yaml.comments import CommentedMap
 
 # --- Local application imports ---
 from .common import DEFAULT_QY_STYLE, SCRIPT_HOME_DIR, console, logger, qy
-from .validators import (
+from .utils.validators import (
     bool_validator,
     int_range_validator,
     server_validator,

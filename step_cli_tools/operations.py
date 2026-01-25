@@ -8,17 +8,14 @@ from typing import TypeVar
 # --- Third-party imports ---
 from rich.panel import Panel
 
-# --- Local application imports ---
 from .common import DEFAULT_QY_STYLE, SCRIPT_CERT_DIR, STEP_BIN, console, logger, qy
 from .configuration import config
-from .customized_parts_questionary.select import CUSTOMIZED_select
-from .data_classes import CertificateRequestInfo, CRI_OutputFormat
-from .support_functions_ca import (
-    check_ca_health,
-    execute_certificate_request,
-    get_ca_root_info,
-)
-from .support_functions_certificates import (
+
+# --- Local application imports ---
+from .models.data import CertificateRequestInfo, CRI_OutputFormat
+from .models.select import CUSTOMIZED_select
+from .utils.ca import check_ca_health, execute_certificate_request, get_ca_root_info
+from .utils.certificates import (
     choose_cert_from_list,
     convert_certificate,
     delete_linux_cert_by_path,
@@ -28,9 +25,9 @@ from .support_functions_certificates import (
     find_windows_cert_by_sha256,
     find_windows_certs_by_name,
 )
-from .support_functions_general import execute_step_command
-from .support_functions_paths import join_safe_path
-from .validators import (
+from .utils.general import execute_step_command
+from .utils.paths import join_safe_path
+from .utils.validators import (
     CertificateSubjectNameValidator,
     HostnameOrIPAddressAndOptionalPortValidator,
     SHA256OrNameValidator,

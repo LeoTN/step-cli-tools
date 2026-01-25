@@ -17,8 +17,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key, p
 from cryptography.utils import CryptographyDeprecationWarning
 
 # --- Local application imports --- #
-from .common import DEFAULT_QY_STYLE, console, logger, qy
-from .data_classes import CertificateConversionResult, CRI_OutputFormat
+from ..common import DEFAULT_QY_STYLE, console, logger, qy
+from ..models.data import CertificateConversionResult, CRI_OutputFormat
 
 
 def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:

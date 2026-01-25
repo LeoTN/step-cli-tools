@@ -10,9 +10,7 @@ from rich.logging import RichHandler
 from .common import DEFAULT_QY_STYLE, STEP_BIN, console, logger, qy
 from .configuration import check_and_repair_config_file, config, show_config_operations
 from .operations import operation1, operation2, operation3
-from .support_functions_general import check_for_update, install_step_cli
-
-# --- Main function ---
+from .utils.general import check_for_update, install_step_cli
 
 
 def main():

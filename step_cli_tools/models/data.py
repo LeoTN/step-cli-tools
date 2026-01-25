@@ -5,8 +5,8 @@ from enum import Enum
 from pathlib import Path
 
 # --- Local application imports ---
-from .common import SCRIPT_CERT_DIR, logger
-from .support_functions_paths import sanitize_filename
+from ..common import SCRIPT_CERT_DIR, logger
+from ..utils.paths import sanitize_filename
 
 # --- Root CA Info ---
 
