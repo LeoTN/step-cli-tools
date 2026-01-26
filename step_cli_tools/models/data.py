@@ -1,6 +1,6 @@
 # --- Standard library imports ---
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -188,16 +188,12 @@ class CertificateRequestInfo:
 
         # Ensure timezone awareness
         if self.valid_since and self.valid_since.tzinfo is None:
-            self.valid_since = self.valid_since.astimezone()
-            logger.warning(
-                f"Validity start date is not timezone aware, using local timezone 'UTC {self.valid_since.utcoffset()}'."
-            )
+            self.valid_since = self.valid_since.replace(tzinfo=timezone.utc)
+            logger.warning("Validity start date is not timezone aware, assuming UTC.")
 
         if self.valid_until and self.valid_until.tzinfo is None:
-            self.valid_until = self.valid_until.astimezone()
-            logger.warning(
-                f"Validity end date is not timezone aware, using local timezone 'UTC {self.valid_until.utcoffset()}'."
-            )
+            self.valid_until = self.valid_until.replace(tzinfo=timezone.utc)
+            logger.warning("Validity end date is not timezone aware, assuming UTC.")
 
         # Normalize key options
         if self.key_algorithm == CRI_KeyAlgorithm.RSA:
@@ -260,6 +256,9 @@ class CertificateRequestInfo:
             and self.valid_since > self.valid_until
         ):
             raise ValueError("Validity start date must be before end date")
+
+        if self.valid_until and self.valid_until < datetime.now().astimezone():
+            raise ValueError("Validity end date must be in the future")
 
     # Used to determine the correct user prompt and step-cli argument to pass
     def is_key_algorithm_ec(self) -> bool:

@@ -1,10 +1,12 @@
 # --- Standard library imports ---
 import platform
 import re
+from datetime import datetime
 from enum import Enum
 from typing import TypeVar
 
 # --- Third-party imports ---
+from dateutil import parser
 from rich.panel import Panel
 
 from .common import DEFAULT_QY_STYLE, SCRIPT_CERT_DIR, STEP_BIN, console, logger, qy
@@ -28,6 +30,7 @@ from .utils.general import execute_step_command
 from .utils.paths import join_safe_path
 from .utils.validators import (
     CertificateSubjectNameValidator,
+    DateTimeValidator,
     HostnameOrIPAddressAndOptionalPortValidator,
     SHA256OrNameValidator,
     SHA256Validator,
@@ -570,9 +573,18 @@ def operation3():
                         value="okp_curve",
                     )
                 )
-
             choices.extend(
                 [
+                    qy.Choice(
+                        title=f"Valid Since: {cri_obj.valid_since if cri_obj.valid_since else 'CA default'}",
+                        description="Start date/time for certificate validity.",
+                        value="valid_since",
+                    ),
+                    qy.Choice(
+                        title=f"Valid Until: {cri_obj.valid_until if cri_obj.valid_until else 'CA default'}",
+                        description="End date/time for certificate validity.",
+                        value="valid_until",
+                    ),
                     qy.Choice(title="Proceed", value="proceed"),
                     qy.Choice(title="Exit", value="exit"),
                 ]
@@ -624,9 +636,6 @@ def operation3():
                 if value:
                     cri_obj.output_format = value
 
-            # Submenu: Validity
-            # WIP
-
             # Submenu: SAN Entries
             elif answer == "san_entries":
                 _edit_san_entries(cri_obj)
@@ -657,6 +666,58 @@ def operation3():
                 if value:
                     cri_obj.okp_curve = value
 
+            # Submenu: Valid Since
+            elif answer == "valid_since":
+                console.print()
+                value = qy.text(
+                    message="Enter validity start date/time (leave blank for CA default)",
+                    default=(
+                        cri_obj.valid_since.strftime("%Y-%m-%d %H:%M:%S")
+                        if cri_obj.valid_since
+                        else ""
+                    ),
+                    validate=DateTimeValidator(
+                        # Start date must be in the future (only date part is considered)
+                        not_before=datetime.now()
+                        .astimezone()
+                        .replace(hour=0, minute=0, second=0, microsecond=0),
+                        not_after=cri_obj.valid_until,
+                        accept_blank=True,
+                    ),
+                    style=DEFAULT_QY_STYLE,
+                ).ask()
+                if value:
+                    # User wants to clear the date
+                    if value.strip() == "":
+                        cri_obj.valid_since = None
+                    else:
+                        # The string is already validated, so we can directly parse it
+                        cri_obj.valid_since = parser.parse(value).astimezone()
+
+            # Submenu: Valid Until
+            elif answer == "valid_until":
+                console.print()
+                value = qy.text(
+                    message="Enter validity end date/time (leave blank for CA default)",
+                    default=(
+                        cri_obj.valid_until.strftime("%Y-%m-%d %H:%M:%S")
+                        if cri_obj.valid_until
+                        else ""
+                    ),
+                    validate=DateTimeValidator(
+                        not_before=cri_obj.valid_since, accept_blank=True
+                    ),
+                    style=DEFAULT_QY_STYLE,
+                ).ask()
+                if value:
+                    # User wants to clear the date
+                    if value.strip() == "":
+                        cri_obj.valid_until = None
+                    else:
+                        # The string is already validated, so we can directly parse it
+                        cri_obj.valid_until = parser.parse(value).astimezone()
+
+    # Start review/edit loop
     proceed = _review_and_edit(cri)
     if not proceed:
         return

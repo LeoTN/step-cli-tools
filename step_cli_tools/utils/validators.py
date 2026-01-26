@@ -1,9 +1,13 @@
 # --- Standard library imports ---
 import ipaddress
 import re
+from datetime import datetime, timezone
 
 # --- Third-party imports ---
 from questionary import ValidationError, Validator
+
+# --- Local application imports ---
+from ..common import logger
 
 
 class CertificateSubjectNameValidator(Validator):
@@ -45,14 +49,14 @@ class CertificateSubjectNameValidator(Validator):
         # Reject IPv4-like values that are not valid IPv4
         if re.match(r"^\d+(\.\d+){3}$", value):
             raise ValidationError(
-                message=f"[ERROR] Invalid IPv4 address: {value}",
+                message=f"Invalid IPv4 address: {value}",
                 cursor_position=len(document.text),
             )
 
         # Reject IPv6-like values that are not valid IPv6
         if ":" in value:
             raise ValidationError(
-                message=f"[ERROR] Invalid IPv6 address: {value}",
+                message=f"Invalid IPv6 address: {value}",
                 cursor_position=len(document.text),
             )
 
@@ -64,7 +68,7 @@ class CertificateSubjectNameValidator(Validator):
             )
             if unescaped_illegal.search(value):
                 raise ValidationError(
-                    message=f"[ERROR] Invalid DN: contains illegal unescaped characters",
+                    message=f"Invalid DN: contains illegal unescaped characters",
                     cursor_position=len(document.text),
                 )
             return  # Passed DN check
@@ -72,7 +76,7 @@ class CertificateSubjectNameValidator(Validator):
         # Otherwise validate as DNS hostname with optional wildcard
         if not self.DNS_WILDCARD_REGEX.match(value):
             raise ValidationError(
-                message=f"[ERROR] Invalid hostname or wildcard: {value}",
+                message=f"Invalid hostname or wildcard: {value}",
                 cursor_position=len(document.text),
             )
 
@@ -163,6 +167,111 @@ class SHA256OrNameValidator(Validator):
         if not re.fullmatch(r"[A-Za-z0-9\s\-\_\*]+", normalized):
             raise ValidationError(
                 message="Invalid input. Enter a SHA256 fingerprint or a name with optional '*'",
+                cursor_position=len(document.text),
+            )
+
+
+class DateTimeValidator(Validator):
+    """
+    Validates a datetime value including time.
+    Supports:
+      - multiple common datetime string formats
+      - optional lower and upper datetime bounds
+    """
+
+    SUPPORTED_FORMATS = (
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%d.%m.%Y",
+        "%d.%m.%Y %H:%M",
+        "%d.%m.%Y %H:%M:%S",
+        "%d/%m/%Y",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y %H:%M:%S",
+    )
+
+    def __init__(
+        self,
+        *,
+        recommended_format: str = "%Y-%m-%d %H:%M:%S",
+        not_before: datetime | None = None,
+        not_after: datetime | None = None,
+        accept_blank: bool = False,
+    ):
+        self.recommended_format = recommended_format
+        self.not_before = self._ensure_timezone(not_before)
+        self.not_after = self._ensure_timezone(not_after)
+        self.accept_blank = accept_blank
+        super().__init__()
+
+    @staticmethod
+    def _ensure_timezone(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+
+        if value.tzinfo is None:
+            logger.warning("Datetime is not timezone aware, assuming UTC.")
+            return value.replace(tzinfo=timezone.utc)
+
+        return value
+
+    def _parse_datetime(self, value: str) -> datetime | None:
+        # First try ISO-8601 (fast path)
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            pass
+
+        # Fallback to supported legacy formats
+        for fmt in self.SUPPORTED_FORMATS:
+            try:
+                return datetime.strptime(value, fmt)
+            except ValueError:
+                continue
+
+        return None
+
+    def validate(self, document):
+        value = document.text.strip()
+        now_recommended = datetime.now(timezone.utc).strftime(self.recommended_format)
+
+        # Accept blank input if configured
+        if self.accept_blank and not value:
+            return
+
+        parsed_datetime = self._parse_datetime(value)
+        if parsed_datetime is None:
+            raise ValidationError(
+                message=(
+                    f"Invalid date/time value. "
+                    f"Recommended format: {now_recommended}"
+                ),
+                cursor_position=len(document.text),
+            )
+
+        # Normalize parsed datetime
+        if parsed_datetime.tzinfo is None:
+            parsed_datetime = parsed_datetime.replace(tzinfo=timezone.utc)
+
+        # Validate lower bound
+        if self.not_before is not None and parsed_datetime < self.not_before:
+            raise ValidationError(
+                message=(
+                    f"'{value}' is earlier than allowed minimum "
+                    f"'{self.not_before.strftime(self.recommended_format)}'"
+                ),
+                cursor_position=len(document.text),
+            )
+
+        # Validate upper bound
+        if self.not_after is not None and parsed_datetime > self.not_after:
+            raise ValidationError(
+                message=(
+                    f"'{value}' is later than allowed maximum "
+                    f"'{self.not_after.strftime(self.recommended_format)}'"
+                ),
                 cursor_position=len(document.text),
             )
 
