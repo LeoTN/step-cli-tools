@@ -30,8 +30,8 @@ sct
 
 | Feature | Description |
 |---------|-------------|
-| 📜 **Manage Root CA Certificates** | Install & uninstall your **root CA certificate** easily |
-| 📝 **Request Certificates**        | Request **(TLS) certificates** from your **CA server** |
+| 📜 **Manage** root CA certificates | Install & uninstall your root CA certificate easily |
+| 📝 **Request** certificates        | Request TLS certificates from your CA server        |
 
 ℹ️ More features are planned.
 
