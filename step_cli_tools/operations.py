@@ -413,7 +413,7 @@ def operation3():
 
     # Initialize CertificateRequestInfo with default values
     cri = CertificateRequestInfo(
-        _subject_name="change.me",
+        _subject_name=config.get("certificate_request_config.default_subject_name"),
         output_format=CRI_OutputFormat.PEM_CRT_KEY,
     )
 

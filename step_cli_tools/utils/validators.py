@@ -4,6 +4,7 @@ import re
 from datetime import datetime, timezone
 
 # --- Third-party imports ---
+from prompt_toolkit.document import Document
 from questionary import ValidationError, Validator
 
 # --- Local application imports ---
@@ -17,6 +18,12 @@ class CertificateSubjectNameValidator(Validator):
       - CN/DN (escaped)
       - DNS hostnames with optional wildcard in first label
       - IPv4 and IPv6 addresses
+
+    Args:
+        accept_blank: If True, accept blank input.
+
+    Returns:
+        None if valid, otherwise a string describing the validation error.
     """
 
     def __init__(self, accept_blank: bool = False):
@@ -33,11 +40,16 @@ class CertificateSubjectNameValidator(Validator):
     )
 
     def validate(self, document):
-        value = document.text.strip()
+        if document.text is None or document.text.strip() == "":
+            # Accept blank input if configured
+            if self.accept_blank:
+                return
+            raise ValidationError(
+                message="Value cannot be blank",
+                cursor_position=len(document.text),
+            )
 
-        # Accept blank input if configured
-        if self.accept_blank and not value:
-            return
+        value = document.text.strip()
 
         # Check if value is a valid IP address
         try:
@@ -82,7 +94,32 @@ class CertificateSubjectNameValidator(Validator):
 
 
 class HostnameOrIPAddressAndOptionalPortValidator(Validator):
+    """
+    Validates a hostname or an IP address with an optional port.
+
+    Args:
+        accept_blank: If True, accept blank input.
+        accept_port: If True, accept port numbers after the hostname/IP address.
+
+    Returns:
+        None if valid, otherwise a string describing the validation error.
+    """
+
+    def __init__(self, accept_blank: bool = False, accept_port: bool = True):
+        self.accept_blank = accept_blank
+        self.accept_port = accept_port
+        super().__init__()
+
     def validate(self, document):
+        if document.text is None or document.text.strip() == "":
+            # Accept blank input if configured
+            if self.accept_blank:
+                return
+            raise ValidationError(
+                message="Value cannot be blank",
+                cursor_position=len(document.text),
+            )
+
         value = document.text.strip()
 
         host_part = value
@@ -101,6 +138,12 @@ class HostnameOrIPAddressAndOptionalPortValidator(Validator):
 
         # Validate port if present
         if port_part:
+            if not self.accept_port:
+                raise ValidationError(
+                    message="Port is not allowed",
+                    cursor_position=len(document.text),
+                )
+
             if not port_part.isdigit() or not (1 <= int(port_part) <= 65535):
                 raise ValidationError(
                     message=f"Invalid port: {port_part}. Must be between 1 and 65535",
@@ -142,7 +185,30 @@ class HostnameOrIPAddressAndOptionalPortValidator(Validator):
 
 
 class SHA256Validator(Validator):
+    """
+    Validates a SHA256 fingerprint.
+
+    Args:
+        accept_blank: If True, accept blank input.
+
+    Returns:
+        None if valid, otherwise a string describing the validation error.
+    """
+
+    def __init__(self, accept_blank: bool = False):
+        self.accept_blank = accept_blank
+        super().__init__()
+
     def validate(self, document):
+        if document.text is None or document.text.strip() == "":
+            # Accept blank input if configured
+            if self.accept_blank:
+                return
+            raise ValidationError(
+                message="Value cannot be blank",
+                cursor_position=len(document.text),
+            )
+
         value = document.text.strip()
 
         # Delete colons if present
@@ -157,7 +223,30 @@ class SHA256Validator(Validator):
 
 
 class SHA256OrNameValidator(Validator):
+    """
+    Validates a SHA256 fingerprint or a name with optional '*'.
+
+    Args:
+        accept_blank: If True, accept blank input.
+
+    Returns:
+        None if valid, otherwise a string describing the validation error.
+    """
+
+    def __init__(self, accept_blank: bool = False):
+        self.accept_blank = accept_blank
+        super().__init__()
+
     def validate(self, document):
+        if document.text is None or document.text.strip() == "":
+            # Accept blank input if configured
+            if self.accept_blank:
+                return
+            raise ValidationError(
+                message="Value cannot be blank",
+                cursor_position=len(document.text),
+            )
+
         value = document.text.strip()
 
         # Delete colons if present
@@ -177,6 +266,15 @@ class DateTimeValidator(Validator):
     Supports:
       - multiple common datetime string formats
       - optional lower and upper datetime bounds
+
+    Args:
+        recommended_format: Default recommended format for datetime values.
+        not_before: Optional lower bound for datetime values.
+        not_after: Optional upper bound for datetime values.
+        accept_blank: If True, accept blank input.
+
+    Returns:
+        None if valid, otherwise a string describing the validation error.
     """
 
     SUPPORTED_FORMATS = (
@@ -234,13 +332,18 @@ class DateTimeValidator(Validator):
         return None
 
     def validate(self, document):
+        if document.text is None or document.text.strip() == "":
+            # Accept blank input if configured
+            if self.accept_blank:
+                return
+            raise ValidationError(
+                message="Value cannot be blank",
+                cursor_position=len(document.text),
+            )
+
         value = document.text.strip()
+
         now_recommended = datetime.now(timezone.utc).strftime(self.recommended_format)
-
-        # Accept blank input if configured
-        if self.accept_blank and not value:
-            return
-
         parsed_datetime = self._parse_datetime(value)
         if parsed_datetime is None:
             raise ValidationError(
@@ -343,49 +446,59 @@ def bool_validator(value) -> str | None:
     return
 
 
-def server_validator(value: str) -> str | None:
+def hostname_or_ip_address_and_optional_port_validator(
+    value: str, accept_blank: bool = False, accept_port: bool = True
+) -> str | None:
     """
-    Validate a server string with optional port.
+    Wrapper for HostnameOrIPAddressAndOptionalPortValidator to adapt to config schema validation.
 
     Args:
-        value: A string like "hostname" or "hostname:port" or "127.0.0.1:8080".
+        value: The string value to validate.
 
     Returns:
-        None if valid, otherwise a descriptive string.
+        None if valid, otherwise a string describing the validation error.
     """
 
-    if not isinstance(value, str):
-        return f"Invalid type: expected string, got {type(value).__name__}"
+    if value is None or value.strip() == "":
+        if accept_blank:
+            return None
+        return "Value cannot be blank"
 
-    value = value.strip()
-    if not value:
-        # An empty string is allowed in the config file
-        return
+    validator = HostnameOrIPAddressAndOptionalPortValidator(accept_port=accept_port)
+    document = Document(text=value)
 
-    # Split host and optional port
-    if ":" in value:
-        host_part, port_part = value.rsplit(":", 1)
-        if not port_part.isdigit() or not (1 <= int(port_part) <= 65535):
-            return f"Invalid port: {port_part}. Must be between 1 and 65535."
-    else:
-        host_part = value
-
-    # Check if host is a valid IP address
     try:
-        ipaddress.ip_address(host_part)
-        return
-    except ValueError:
-        pass
+        validator.validate(document)
+        return None
+    except ValidationError as exc:
+        # Return the validation message as string
+        return exc.message
 
-    # Validate hostname format
-    hostname_regex = re.compile(
-        r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
-        r"(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
-    )
-    if not hostname_regex.match(host_part):
-        return (
-            f"Invalid hostname: '{host_part}'. "
-            "Must not contain spaces or invalid characters."
-        )
 
-    return
+def certificate_subject_name_validator(
+    value: str, accept_blank: bool = False
+) -> str | None:
+    """
+    Wrapper for CertificateSubjectNameValidator to adapt to config schema validation.
+
+    Args:
+        value: The string value to validate.
+
+    Returns:
+        None if valid, otherwise a string describing the validation error.
+    """
+
+    if value is None or value.strip() == "":
+        if accept_blank:
+            return None
+        return "Value cannot be blank"
+
+    validator = CertificateSubjectNameValidator()
+    document = Document(text=value)
+
+    try:
+        validator.validate(document)
+        return None
+    except ValidationError as exc:
+        # Return the validation message as string
+        return exc.message
