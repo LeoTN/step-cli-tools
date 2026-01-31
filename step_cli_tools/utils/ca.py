@@ -12,82 +12,58 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import NameOID
 
 # --- Local application imports --- #
-from ..common import DEFAULT_QY_STYLE, SCRIPT_CACHE_DIR, STEP_BIN, console, logger, qy
+from ..common import SCRIPT_CACHE_DIR, STEP_BIN, get_masked_url_for_logging, logger
 from ..models.data import CertificateRequestInfo, RootCAInfo
+from ..utils.network import is_server_certificate_trusted
 from .general import execute_step_command
 
 
 def execute_ca_request(
     url: str,
-    trust_unknown_default: bool = False,
+    trust_unknown_certificates: bool = False,
     timeout: int = 10,
 ) -> str | None:
     """
-    Perform an HTTPS request to the CA, handling untrusted certificates if needed.
+    Perform an HTTPS request to a step-ca server, respecting trust settings for certificates.
 
     Args:
         url: URL to request.
-        trust_unknown_default: If True, trust unverified SSL certificates.
+        trust_unknown_certificates: If True, trust unverified SSL certificates.
         timeout: Timeout in seconds.
 
     Returns:
-        Response body as string, or None on failure or user abort.
+        Response body as string, or None on failure.
     """
 
-    logger.debug(locals())
+    masked_url = get_masked_url_for_logging(url)
+    logger.debug(
+        f"url={masked_url}, trust_unknown_certificates={trust_unknown_certificates}, timeout={timeout}"
+    )
 
     def do_request(context):
         with urlopen(url, context=context, timeout=timeout) as response:
             logger.debug(f"Received HTTP response status code: {response.status}")
             return response.read().decode("utf-8").strip()
 
-    context = (
-        ssl._create_unverified_context()
-        if trust_unknown_default
-        else ssl.create_default_context()
-    )
+    # Determine SSL context based on trust settings and server certificate status
+    if trust_unknown_certificates or not is_server_certificate_trusted(url):
+        context = ssl._create_unverified_context()
+        if not trust_unknown_certificates:
+            logger.warning(
+                f"Server certificate for '{masked_url}' is untrusted. Proceeding with unverified SSL context."
+            )
+    else:
+        context = ssl.create_default_context()
 
     try:
         return do_request(context)
 
     except URLError as e:
-        reason = getattr(e, "reason", None)
-
-        logger.debug(f"URLError: {e}")
-
-        if isinstance(reason, ssl.SSLCertVerificationError):
-            logger.warning("Server provided an unknown or self-signed certificate.")
-
-            console.print()
-            answer = qy.confirm(
-                message=f"Do you want to trust '{url}' this time?",
-                default=False,
-                style=DEFAULT_QY_STYLE,
-            ).ask()
-
-            if not answer:
-                logger.info("Operation cancelled by user.")
-                return
-
-            logger.debug("Retrying request with unverified SSL context")
-
-            try:
-                return do_request(ssl._create_unverified_context())
-            except Exception as retry_error:
-                logger.error(
-                    f"Retry failed: {retry_error}\n\nIs the port correct and the server available?"
-                )
-                return
-
-        logger.error(
-            f"Connection failed: {e}\n\nIs the port correct and the server available?"
-        )
+        logger.error(f"Connection failed: {e}\n\nAre address and port correct?")
         return
 
     except Exception as e:
-        logger.error(
-            f"Request failed: {e}\n\nIs the port correct and the server available?"
-        )
+        logger.error(f"Request failed: {e}\n\nAre address and port correct?")
         return
 
 
@@ -100,7 +76,7 @@ def execute_certificate_request(
 
     Args:
         request_parameters: Certificate request parameters.
-        ca_base_url: Base URL of the CA server, including protocol and port.
+        ca_base_url: Base URL of the step-ca server, including protocol and port.
 
     Returns:
         Tuple of certificate and key paths on success, None on error or user cancel.
@@ -172,13 +148,15 @@ def execute_certificate_request(
     return tmp_crt_file_path, tmp_key_file_path
 
 
-def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bool:
+def is_step_ca_server_healthy(
+    ca_base_url: str, trust_unknown_certificates: bool = False
+) -> bool:
     """
-    Check the health endpoint of a CA server via HTTPS.
+    Check the health endpoint of a step-ca server via HTTPS.
 
     Args:
-        ca_base_url: Base URL of the CA server, including protocol and port.
-        trust_unknown_default: If True, trust unverified SSL certificates.
+        ca_base_url: Base URL of the step-ca server, including protocol and port.
+        trust_unknown_certificates: If True, trust unverified SSL certificates.
 
     Returns:
         True if the CA is healthy, False otherwise.
@@ -190,7 +168,7 @@ def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bo
 
     response = execute_ca_request(
         url=health_url,
-        trust_unknown_default=trust_unknown_default,
+        trust_unknown_certificates=trust_unknown_certificates,
     )
 
     if response is None:
@@ -200,7 +178,7 @@ def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bo
     logger.debug(f"Health endpoint response: {response}")
 
     if "ok" in response.lower():
-        logger.info(f"CA at '{ca_base_url}' is healthy.")
+        logger.info(f"step-ca server at '{ca_base_url}' is healthy.")
         return True
 
     logger.error(f"CA health check failed for '{ca_base_url}'.")
@@ -209,18 +187,17 @@ def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bo
 
 def get_ca_root_info(
     ca_base_url: str,
-    trust_unknown_default: bool = False,
+    trust_unknown_certificates: bool = False,
 ) -> RootCAInfo | None:
     """
-    Fetch the first root certificate from a Smallstep CA and return its name
-    and SHA256 fingerprint.
+    Fetch the first root certificate from a step-ca server and return its name and SHA256 fingerprint.
 
     Args:
-        ca_base_url: Base URL of the CA (e.g. https://my-ca-host:9000).
-        trust_unknown_default: Skip SSL verification immediately if True.
+        ca_base_url: Base URL of the step-ca server (e.g. https://my-ca-host:9000).
+        trust_unknown_certificates: If True, trust unverified SSL certificates.
 
     Returns:
-        RootCAInfo on success, None on error or user cancel.
+        RootCAInfo on success, None on error.
     """
 
     logger.debug(locals())
@@ -229,7 +206,7 @@ def get_ca_root_info(
 
     pem_bundle = execute_ca_request(
         url=roots_url,
-        trust_unknown_default=trust_unknown_default,
+        trust_unknown_certificates=trust_unknown_certificates,
     )
 
     if pem_bundle is None:

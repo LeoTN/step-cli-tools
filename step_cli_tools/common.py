@@ -3,6 +3,7 @@ import logging
 import platform
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from urllib.parse import urlparse
 
 # --- Third-party imports ---
 import questionary
@@ -127,3 +128,24 @@ def _setup_logger(
 logger = _setup_logger(
     name="main",
 )
+
+
+def get_masked_url_for_logging(url: str) -> str:
+    """
+    Return a masked version of the URL suitable for logging.
+
+    Args:
+        url: The URL to mask
+
+    Returns:
+        A string containing only the scheme, hostname, and optional port
+    """
+
+    parsed_url = urlparse(url)
+    scheme = parsed_url.scheme or "unknown"
+    hostname = parsed_url.hostname or "unknown"
+    port = parsed_url.port
+
+    if port:
+        return f"{scheme}://{hostname}:{port}"
+    return f"{scheme}://{hostname}"

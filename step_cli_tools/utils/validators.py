@@ -307,7 +307,7 @@ class DateTimeValidator(Validator):
     @staticmethod
     def _ensure_timezone(value: datetime | None) -> datetime | None:
         if value is None:
-            return None
+            return
 
         if value.tzinfo is None:
             logger.warning("Datetime is not timezone aware, assuming UTC.")
@@ -329,7 +329,7 @@ class DateTimeValidator(Validator):
             except ValueError:
                 continue
 
-        return None
+        return
 
     def validate(self, document):
         if document.text is None or document.text.strip() == "":
@@ -461,7 +461,7 @@ def hostname_or_ip_address_and_optional_port_validator(
 
     if value is None or value.strip() == "":
         if accept_blank:
-            return None
+            return
         return "Value cannot be blank"
 
     validator = HostnameOrIPAddressAndOptionalPortValidator(accept_port=accept_port)
@@ -469,7 +469,7 @@ def hostname_or_ip_address_and_optional_port_validator(
 
     try:
         validator.validate(document)
-        return None
+        return
     except ValidationError as exc:
         # Return the validation message as string
         return exc.message
@@ -490,7 +490,7 @@ def certificate_subject_name_validator(
 
     if value is None or value.strip() == "":
         if accept_blank:
-            return None
+            return
         return "Value cannot be blank"
 
     validator = CertificateSubjectNameValidator()
@@ -498,7 +498,7 @@ def certificate_subject_name_validator(
 
     try:
         validator.validate(document)
-        return None
+        return
     except ValidationError as exc:
         # Return the validation message as string
         return exc.message

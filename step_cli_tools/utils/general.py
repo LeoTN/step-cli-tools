@@ -6,6 +6,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 from urllib.request import urlopen
 from zipfile import ZipFile
@@ -16,6 +17,7 @@ from packaging import version
 # --- Local application imports ---
 from ..common import SCRIPT_CACHE_DIR, logger
 from ..configuration import config
+from ..utils.validators import DateTimeValidator
 
 
 def check_for_update(
@@ -232,3 +234,26 @@ def execute_step_command(
     except Exception as e:
         logger.error(f"Failed to execute step-cli command: {e}")
         return False, None
+
+
+def parse_date_str(date_str: str) -> datetime:
+    """
+    Parse a date string into a datetime object.
+
+    Args:
+        date_str: The date string to parse.
+
+    Returns:
+        A datetime object representing the parsed date.
+
+    Raises:
+        ValueError: If the date string is not in a supported format.
+    """
+
+    for fmt in DateTimeValidator.SUPPORTED_FORMATS:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            pass
+
+    raise ValueError(f"Invalid date format: {date_str}")

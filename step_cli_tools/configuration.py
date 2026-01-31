@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime
+from functools import partial
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -744,20 +745,16 @@ config_schema = {
         "default_ca_server": {
             "type": str,
             "default": "",
-            "validator": hostname_or_ip_address_and_optional_port_validator,
-            "comment": "The CA server which will be used by default (optionally with :port)",
-        },
-        "trust_unknow_certificates_by_default": {
-            "type": bool,
-            "default": False,
-            "validator": bool_validator,
-            "comment": "If true, any CA server providing an unknown self-signed certificate will be trusted by default",
+            "validator": partial(
+                hostname_or_ip_address_and_optional_port_validator, accept_blank=True
+            ),
+            "comment": "The step-ca server which will be used by default (optionally with :port)",
         },
         "fetch_root_ca_certificate_automatically": {
             "type": bool,
             "default": True,
             "validator": bool_validator,
-            "comment": "If false, the root certificate won't be fetched automatically from the CA server. You will need to enter the fingerprint manually when installing a root CA certificate",
+            "comment": "If false, the root certificate won't be fetched automatically from the step-ca server. You will need to enter the fingerprint manually when installing a root CA certificate",
         },
     },
     "certificate_request_config": {

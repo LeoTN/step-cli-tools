@@ -6,16 +6,18 @@ from enum import Enum
 from typing import TypeVar
 
 # --- Third-party imports ---
-from dateutil import parser
 from rich.panel import Panel
 
+# --- Local application imports ---
 from .common import DEFAULT_QY_STYLE, SCRIPT_CERT_DIR, STEP_BIN, console, logger, qy
 from .configuration import config
-
-# --- Local application imports ---
 from .models.data import CertificateRequestInfo, CRI_OutputFormat
 from .models.select import CUSTOMIZED_select
-from .utils.ca import check_ca_health, execute_certificate_request, get_ca_root_info
+from .utils.ca import (
+    execute_certificate_request,
+    get_ca_root_info,
+    is_step_ca_server_healthy,
+)
 from .utils.certificates import (
     choose_cert_from_list,
     convert_certificate,
@@ -26,7 +28,8 @@ from .utils.certificates import (
     find_windows_cert_by_sha256,
     find_windows_certs_by_name,
 )
-from .utils.general import execute_step_command
+from .utils.general import execute_step_command, parse_date_str
+from .utils.network import is_host_available, is_server_certificate_trusted
 from .utils.paths import join_safe_path
 from .utils.validators import (
     CertificateSubjectNameValidator,
@@ -44,21 +47,21 @@ def operation1():
     """
     Install a root certificate in the system trust store.
 
-    Prompt the user for the CA server and (optionally) root CA fingerprint, then execute the step-ca bootstrap command.
+    Prompt the user for the step-ca server and (optionally) root CA fingerprint, then execute the step-ca bootstrap command.
     """
 
     warning_text = (
-        "You are about to install a root CA on your system.\n"
+        "You are about to install a root CA certificate on your system.\n"
         "This may pose a potential security risk to your device.\n"
         "Make sure you fully [bold]trust the CA before proceeding![/bold]"
     )
     console.print(Panel.fit(warning_text, title="WARNING", border_style="#F9ED69"))
 
-    # Ask for CA hostname/IP and port
+    # Ask for step-ca hostname/IP and port
     default = config.get("ca_server_config.default_ca_server")
     console.print()
     ca_input = qy.text(
-        message="Enter step CA server hostname or IP (optionally with :port)",
+        message="Enter step step-ca server hostname or IP (optionally with :port)",
         default=default,
         validate=HostnameOrIPAddressAndOptionalPortValidator,
         style=DEFAULT_QY_STYLE,
@@ -73,18 +76,22 @@ def operation1():
     port = int(port_str) if port_str else 9000
     ca_base_url = f"https://{ca_server}:{port}"
 
-    # Run the health check via helper
-    trust_unknown_default = config.get(
-        "ca_server_config.trust_unknow_certificates_by_default"
-    )
-    if not check_ca_health(ca_base_url, trust_unknown_default):
-        # Either failed or user cancelled
+    if not is_host_available(ca_base_url):
+        logger.error(
+            f"step-ca server at '{ca_base_url}' is not available.\n\nAre address and port correct?"
+        )
+        return
+
+    # Trust unknown certificates because the root certificate will be installed from this server
+    if not is_step_ca_server_healthy(
+        ca_base_url=ca_base_url, trust_unknown_certificates=True
+    ):
         return
 
     use_fingerprint = False
     if config.get("ca_server_config.fetch_root_ca_certificate_automatically"):
         # Get root certificate info
-        ca_root_info = get_ca_root_info(ca_base_url, trust_unknown_default)
+        ca_root_info = get_ca_root_info(ca_base_url, trust_unknown_certificates=True)
         if ca_root_info is None:
             return
 
@@ -110,8 +117,8 @@ def operation1():
         # Ask for fingerprint
         console.print()
         fingerprint = qy.text(
-            message="Enter root certificate fingerprint (SHA256, 64 hex chars)",
-            validate=SHA256Validator,
+            message="Enter root certificate fingerprint (SHA256, 64 hex chars, blank to abort)",
+            validate=SHA256Validator(accept_blank=True),
             style=DEFAULT_QY_STYLE,
         ).ask()
         # Check for empty input
@@ -363,12 +370,12 @@ def operation3():
             console.print()
             password = qy.password(message=message, style=DEFAULT_QY_STYLE).ask()
             if not password:
-                return None
+                return
 
             console.print()
             confirm = qy.password(message=confirm_message, style=DEFAULT_QY_STYLE).ask()
             if not confirm:
-                return None
+                return
 
             if password == confirm:
                 return password
@@ -380,16 +387,16 @@ def operation3():
                 style=DEFAULT_QY_STYLE,
             ).ask()
             if not retry:
-                return None
+                return
 
         logger.error(f"Failed to get password after {max_attempts} attempts.")
-        return None
+        return
 
     # Ask for CA hostname/IP and port
     default = config.get("ca_server_config.default_ca_server")
     console.print()
     ca_input = qy.text(
-        message="Enter step CA server hostname or IP (optionally with :port)",
+        message="Enter step step-ca server hostname or IP (optionally with :port)",
         default=default,
         validate=HostnameOrIPAddressAndOptionalPortValidator,
         style=DEFAULT_QY_STYLE,
@@ -404,11 +411,22 @@ def operation3():
     port = int(port_str) if port_str else 9000
     ca_base_url = f"https://{ca_server}:{port}"
 
-    # Run the health check via helper
-    trust_unknown_default = config.get(
-        "ca_server_config.trust_unknow_certificates_by_default"
-    )
-    if not check_ca_health(ca_base_url, trust_unknown_default):
+    if not is_host_available(ca_base_url):
+        logger.error(
+            f"step-ca server at '{ca_base_url}' is not available.\n\nAre address and port correct?"
+        )
+        return
+
+    # Trust unknown certificates here because the trust check is performed below and we need to verify that the server is a step-ca server
+    if not is_step_ca_server_healthy(
+        ca_base_url=ca_base_url, trust_unknown_certificates=True
+    ):
+        return
+
+    if not is_server_certificate_trusted(ca_base_url):
+        logger.info(
+            "step-cli requires the root certificate of the step-ca server to be trusted. Please install it to the system trust store first."
+        )
         return
 
     # Initialize CertificateRequestInfo with default values
@@ -692,7 +710,7 @@ def operation3():
                         cri_obj.valid_since = None
                     else:
                         # The string is already validated, so we can directly parse it
-                        cri_obj.valid_since = parser.parse(value).astimezone()
+                        cri_obj.valid_since = parse_date_str(value).astimezone()
 
             # Submenu: Valid Until
             elif answer == "valid_until":
@@ -715,7 +733,7 @@ def operation3():
                         cri_obj.valid_until = None
                     else:
                         # The string is already validated, so we can directly parse it
-                        cri_obj.valid_until = parser.parse(value).astimezone()
+                        cri_obj.valid_until = parse_date_str(value).astimezone()
 
     # Start review/edit loop
     proceed = _review_and_edit(cri)
