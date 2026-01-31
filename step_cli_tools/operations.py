@@ -496,7 +496,7 @@ def operation3():
             if choice == "add":
                 console.print()
                 new_san = qy.text(
-                    message="Enter SAN entry (leave blank to cancel)",
+                    message="Enter SAN entry (blank to cancel)",
                     validate=CertificateSubjectNameValidator(accept_blank=True),
                     style=DEFAULT_QY_STYLE,
                 ).ask()
@@ -518,7 +518,7 @@ def operation3():
                 current = cri_obj.san_entries[choice]
                 console.print()
                 edited = qy.text(
-                    message="Edit SAN entry (leave blank to delete)",
+                    message="Edit SAN entry (blank to delete)",
                     default=current,
                     validate=CertificateSubjectNameValidator(accept_blank=True),
                     style=DEFAULT_QY_STYLE,
@@ -688,7 +688,7 @@ def operation3():
             elif answer == "valid_since":
                 console.print()
                 value = qy.text(
-                    message="Enter validity start date/time (leave blank for CA default)",
+                    message="Enter validity start date/time (blank for CA default)",
                     default=(
                         cri_obj.valid_since.strftime("%Y-%m-%d %H:%M:%S")
                         if cri_obj.valid_since
@@ -716,7 +716,7 @@ def operation3():
             elif answer == "valid_until":
                 console.print()
                 value = qy.text(
-                    message="Enter validity end date/time (leave blank for CA default)",
+                    message="Enter validity end date/time (blank for CA default)",
                     default=(
                         cri_obj.valid_until.strftime("%Y-%m-%d %H:%M:%S")
                         if cri_obj.valid_until
@@ -740,19 +740,19 @@ def operation3():
     if not proceed:
         return
 
-    # After finalizing options, ask for optional key password depending on output format
+    # After finalizing options, ask for optional private key password depending on output format
     key_password = None
     if cri.is_output_format_pem():
         key_password = _prompt_for_password(
-            message="Enter key password (leave blank for no password)",
-            confirm_message="Confirm key password",
+            message="Enter private key password (blank for no password)",
+            confirm_message="Confirm private key password",
         )
 
     # Optional PFX Encryption
     pfx_password = None
     if cri.is_output_format_pfx():
         pfx_password = _prompt_for_password(
-            message="Enter PFX password (leave blank for no password)",
+            message="Enter PFX password (blank for no password)",
             confirm_message="Confirm PFX password",
         )
 

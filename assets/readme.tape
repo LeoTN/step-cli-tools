@@ -1,9 +1,9 @@
 Output readme.gif
 
-Require pwsh
+Require powershell
 Require sct
 
-Set Shell pwsh
+Set Shell powershell
 Set Width 1500
 Set Height 750
 Set Padding 20
