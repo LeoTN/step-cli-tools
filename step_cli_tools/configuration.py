@@ -1,28 +1,29 @@
 # --- Standard library imports ---
-from datetime import datetime
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
 import os
 import platform
 import shutil
 import subprocess
 import sys
+from datetime import datetime
+from functools import partial
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 # --- Third-party imports ---
 from rich.logging import RichHandler
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
+from ruamel.yaml.scalarstring import SingleQuotedScalarString
 
 # --- Local application imports ---
-from .common import *
-from .validators import *
-
-__all__ = [
-    "config",
-    "check_and_repair_config_file",
-    "show_config_operations",
-]
-
+from .common import DEFAULT_QY_STYLE, SCRIPT_HOME_DIR, console, logger, qy
+from .utils.validators import (
+    bool_validator,
+    certificate_subject_name_validator,
+    hostname_or_ip_address_and_optional_port_validator,
+    int_range_validator,
+    str_allowed_validator,
+)
 
 yaml = YAML()
 yaml.indent(mapping=2, sequence=4, offset=2)
@@ -30,7 +31,7 @@ yaml.preserve_quotes = True
 
 
 class Configuration:
-    def __init__(self, file_location: str, schema: dict, autosave: bool = True):
+    def __init__(self, file_location: Path, schema: dict, autosave: bool = True):
         """
         Initialize Configuration object. Note, that the load() method MUST be called manually once.
 
@@ -39,7 +40,8 @@ class Configuration:
             schema: Dictionary defining the config schema with types, defaults, validators, and comments.
             autosave: Automatically save after each set() call if True.
         """
-        self.file_location = Path(file_location)
+
+        self.file_location = file_location
         self.file_location.parent.mkdir(parents=True, exist_ok=True)
         self.schema = schema
         self.autosave = autosave
@@ -48,6 +50,7 @@ class Configuration:
     # --- File and public API handling ---
     def load(self):
         """Load YAML config and merge defaults into a CommentedMap with comments."""
+
         if self.file_location.exists():
             try:
                 loaded = yaml.load(self.file_location.read_text()) or {}
@@ -61,6 +64,7 @@ class Configuration:
 
     def save(self):
         """Save current configuration data to YAML file."""
+
         try:
             with self.file_location.open("w", encoding="utf-8") as f:
                 yaml.dump(self._data, f)
@@ -74,6 +78,7 @@ class Configuration:
         Args:
             overwrite: If True, existing file will be replaced. Otherwise, existing file will be kept.
         """
+
         try:
             if self.file_location.exists() and not overwrite:
                 logger.warning(
@@ -83,16 +88,16 @@ class Configuration:
 
             # Backup existing file before overwriting
             if self.file_location.exists() and overwrite:
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
                 backup_path = self.file_location.with_name(
                     f"{self.file_location.stem}_backup_{timestamp}{self.file_location.suffix}"
                 )
                 shutil.copy2(self.file_location, backup_path)
-                logger.info(f"Created backup before overwrite: {backup_path}")
+                logger.info(f"Created backup before overwrite at '{backup_path}'.")
 
-            # This is a bit akward but the file is technically repaired without keeping any data.
+            # This is a bit akward but the file is technically repaired without keeping any data
             default_data = self._build_commented_data(
-                self.schema, repair_damaged_keys=True, suppress_repair_messages=True
+                self.schema, repair=True, log_repair=False
             )
 
             # Save YAML file
@@ -100,7 +105,7 @@ class Configuration:
                 yaml.dump(default_data, f)
 
             logger.info(
-                f"Default configuration file was generated successfully: {self.file_location}"
+                f"Generated default configuration file at '{self.file_location}'."
             )
 
             # Load the data into memory so it's ready for use
@@ -130,6 +135,7 @@ class Configuration:
         Returns:
             The current value or the schema default if missing.
         """
+
         parts = key.split(".")
         data = self._data
         for part in parts:
@@ -148,6 +154,7 @@ class Configuration:
             key: Dotted path to the setting.
             value: Value to set.
         """
+
         parts = key.split(".")
         data = self._data
 
@@ -181,9 +188,8 @@ class Configuration:
 
     def repair(self):
         """Restore missing keys and values from the schema and optionally autosave."""
-        self._data = self._build_commented_data(
-            self.schema, self._data, repair_damaged_keys=True
-        )
+
+        self._data = self._build_commented_data(self.schema, self._data, repair=True)
         if self.autosave:
             self.save()
 
@@ -196,6 +202,7 @@ class Configuration:
         Returns:
             True if all checked values are valid, False otherwise.
         """
+
         if key:
             parts = key.split(".")
             meta = self._nested_get_meta(parts)
@@ -248,6 +255,7 @@ class Configuration:
         Returns:
             Callable validator with parameters applied if applicable.
         """
+
         if callable(validator):
             if validator is int_range_validator and "min" in meta and "max" in meta:
                 return int_range_validator(meta["min"], meta["max"])
@@ -266,6 +274,7 @@ class Configuration:
         Returns:
             True if all values valid, False otherwise.
         """
+
         ok = True
         for k, meta in schema.items():
             if not isinstance(meta, dict):
@@ -316,57 +325,100 @@ class Configuration:
 
     def _nested_get_meta(self, keys: list[str]) -> dict | None:
         """Retrieve schema metadata for nested key path."""
+
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
-                return None
+                return
             data = data[k]
         return data if isinstance(data, dict) else None
 
     def _nested_get_default(self, keys: list[str]):
         """Retrieve default value from schema for nested key path."""
+
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
                 logger.warning(f"Missing default for key '{'.'.join(keys)}'.")
-                return None
+                return
             data = data[k]
             if isinstance(data, dict) and "default" in data:
                 return data["default"]
-        return None
+        return
 
     def _nested_get_type(self, keys: list[str]):
         """Retrieve expected type from schema for nested key path."""
+
         data = self.schema
         for k in keys:
             if not isinstance(data, dict) or k not in data:
-                return None
+                return
             data = data[k]
         return data.get("type") if isinstance(data, dict) else None
 
-    def _build_commented_data(
+    def _merge_schema_data(self, schema: dict, data: dict | None) -> dict:
+        """Merge schema structure with existing data."""
+
+        data = data or {}
+        result = {}
+
+        for key, meta in schema.items():
+            if not isinstance(meta, dict):
+                continue
+
+            # Section
+            if "type" not in meta:
+                result[key] = self._merge_schema_data(meta, data.get(key, {}))
+            else:
+                result[key] = data.get(key)
+
+        return result
+
+    def _repair_data(
         self,
         schema: dict,
-        data: dict | None = None,
+        data: dict,
+        *,
+        log: bool = True,
+    ) -> dict:
+        """Restore missing or invalid keys using schema defaults."""
+
+        repaired = {}
+
+        for key, meta in schema.items():
+            if not isinstance(meta, dict):
+                continue
+
+            # Section
+            if "type" not in meta:
+                repaired[key] = self._repair_data(
+                    meta,
+                    data.get(key, {}),
+                    log=log,
+                )
+                continue
+
+            value = data.get(key)
+
+            if value is None:
+                if log:
+                    logger.info(f"Repairing key '{key}' from config schema.")
+                repaired[key] = meta.get("default")
+            else:
+                repaired[key] = value
+
+        return repaired
+
+    def _annotate_yaml(
+        self,
+        schema: dict,
+        data: dict,
+        *,
         indent: int = 0,
         top_level: bool = True,
-        repair_damaged_keys=False,
-        suppress_repair_messages=False,
     ) -> CommentedMap:
-        """Construct a CommentedMap with schema defaults and YAML comments.
+        """Convert dict into CommentedMap with YAML comments."""
 
-        Args:
-            schema: Schema defining keys, types, defaults, validators, and comments.
-            data: Optional existing config data to merge.
-            indent: Indentation level for YAML comments.
-            top_level: True if building top-level mapping.
-            repair_damaged_keys: Restore missing keys from schema if True.
-            suppress_repair_messages: Suppress log messages from repairing keys if True.
-
-        Returns:
-            CommentedMap populated with data and comments.
-        """
-        data = data or {}
         node = CommentedMap()
 
         for i, (key, meta) in enumerate(schema.items()):
@@ -374,25 +426,20 @@ class Configuration:
                 continue
 
             if "type" not in meta:
-                child_node = self._build_commented_data(
+                node[key] = self._annotate_yaml(
                     meta,
                     data.get(key, {}),
-                    indent + 2,
+                    indent=indent + 2,
                     top_level=False,
-                    repair_damaged_keys=repair_damaged_keys,
-                    suppress_repair_messages=suppress_repair_messages,
                 )
-                node[key] = child_node
             else:
-                node[key] = data.get(key)
-                # The data could not be extracted from the config file
-                if node[key] is None:
-                    if repair_damaged_keys:
-                        if not suppress_repair_messages:
-                            logger.info(f"Repairing key '{key}' from config schema.")
-                        node[key] = meta.get("default")
-                    else:
-                        continue
+                value_to_set = data.get(key)
+
+                # Wrap strings with single quotes for YAML
+                if isinstance(value_to_set, str):
+                    value_to_set = SingleQuotedScalarString(value_to_set)
+
+                node[key] = value_to_set
 
                 type_obj = meta.get("type")
                 type_name = type_obj.__name__ if type_obj else "unknown"
@@ -404,13 +451,11 @@ class Configuration:
                 if allowed:
                     type_info = f"[{type_name}: allowed: {', '.join(map(str, allowed))} | default: {default_val}]"
                 elif min_val is not None or max_val is not None:
-                    range_part = ""
-                    if min_val is not None and max_val is not None:
-                        range_part = f"{min_val} - {max_val}"
-                    elif min_val is not None:
-                        range_part = f">= {min_val}"
-                    elif max_val is not None:
-                        range_part = f"<= {max_val}"
+                    range_part = (
+                        f"{min_val} - {max_val}"
+                        if min_val is not None and max_val is not None
+                        else f">= {min_val}" if min_val is not None else f"<= {max_val}"
+                    )
                     type_info = f"[{type_name}: {range_part} | default: {default_val}]"
                 else:
                     type_info = f"[{type_name} | default: {default_val}]"
@@ -419,33 +464,41 @@ class Configuration:
                 final_comment = (
                     f"{type_info} - {extra_comment}" if extra_comment else type_info
                 )
+
                 node.yaml_set_comment_before_after_key(
                     key, before=final_comment, indent=indent
                 )
 
-            # Leave an empty line between top level keys
+            # Top-level spacing
             if top_level and i > 0:
-                node.yaml_set_comment_before_after_key(
-                    key,
-                    before="\n"
-                    + (
-                        node.ca.items.get(key)[2].value
-                        if node.ca.items.get(key) and node.ca.items.get(key)[2]
-                        else ""
-                    ),
-                    indent=indent,
-                )
+                node.yaml_set_comment_before_after_key(key, before="\n", indent=indent)
 
         return node
+
+    def _build_commented_data(
+        self,
+        schema: dict,
+        data: dict | None = None,
+        *,
+        repair: bool = False,
+        log_repair: bool = True,
+    ) -> CommentedMap:
+        """Convert data dict into CommentedMap with YAML comments."""
+
+        merged = self._merge_schema_data(schema, data)
+
+        if repair:
+            merged = self._repair_data(schema, merged, log=log_repair)
+
+        return self._annotate_yaml(schema, merged)
 
 
 def check_and_repair_config_file():
     """Ensure the config file exists and is valid. Allow repair/edit/reset if invalid."""
 
     # Generate default config if missing
-    if not os.path.exists(config.file_location):
+    if not config.file_location.exists():
         config.generate_default()
-        logger.info("A default config file has been generated.")
 
     automatic_repair_failed = False
 
@@ -470,8 +523,10 @@ def check_and_repair_config_file():
         # In case the automatic repair fails
         console.print()
         selected_action = qy.select(
-            message="Choose an action:",
+            message="Choose an action",
             choices=["Edit config file", "Reset config file"],
+            use_search_filter=True,
+            use_jk_keys=False,
             style=DEFAULT_QY_STYLE,
         ).ask()
 
@@ -511,7 +566,7 @@ def show_config_operations():
         # Prompt user to select an operation
         console.print()
         selected_operation = qy.select(
-            message="Config file operation:",
+            message="Config file operation",
             choices=config_operations,
             use_search_filter=True,
             use_jk_keys=False,
@@ -563,11 +618,13 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
         logger.error("Configuration is invalid.")
         console.print()
         selected_action = qy.select(
-            message="Choose an action:",
+            message="Choose an action",
             choices=[
                 "Edit again",
                 "Reset config file" if reset_instead_of_discard else "Discard changes",
             ],
+            use_search_filter=True,
+            use_jk_keys=False,
             style=DEFAULT_QY_STYLE,
         ).ask()
 
@@ -585,7 +642,7 @@ def let_user_change_config_file(reset_instead_of_discard: bool = False):
         # else: loop continues for "Edit again"
 
 
-def open_in_editor(file_path: str | Path):
+def open_in_editor(file_path: Path):
     """
     Open the given file in the user's preferred text editor and wait until it is closed.
 
@@ -595,7 +652,7 @@ def open_in_editor(file_path: str | Path):
       - On Linux: tries common editors (nano, vim) or falls back to xdg-open (non-blocking).
     """
 
-    path = Path(file_path).expanduser().resolve()
+    path = file_path.expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
@@ -604,33 +661,33 @@ def open_in_editor(file_path: str | Path):
     # --- Windows ---
     if platform.system() == "Windows":
         if editor:
-            subprocess.run([editor, str(path)], check=False)
+            subprocess.run([editor, path], check=False)
         else:
             # notepad blocks until file is closed
-            subprocess.run(["notepad", str(path)], check=False)
+            subprocess.run(["notepad", path], check=False)
         return
 
     # --- macOS ---
     if platform.system() == "Darwin":
         if editor:
-            subprocess.run([editor, str(path)], check=False)
+            subprocess.run([editor, path], check=False)
         else:
             # `open -W` waits until the app is closed
-            subprocess.run(["open", "-W", "-t", str(path)], check=False)
+            subprocess.run(["open", "-W", "-t", path], check=False)
         return
 
     # --- Linux / Unix ---
     if platform.system() == "Linux":
         if editor:
-            subprocess.run([editor, str(path)], check=False)
+            subprocess.run([editor, path], check=False)
             return
         # try common console editors
         for candidate in ["nano", "vim", "vi"]:
             if shutil.which(candidate):
-                subprocess.run([candidate, str(path)], check=False)
+                subprocess.run([candidate, path], check=False)
                 return
         # fallback: GUI open (non-blocking)
-        subprocess.Popen(["xdg-open", str(path)])
+        subprocess.Popen(["xdg-open", path])
         logger.info("File opened in default GUI editor. Please close it manually.")
         input("Press Enter here when you're done editing...")
 
@@ -660,7 +717,7 @@ def reset_with_feedback():
 
 
 # --- Config file defintions ---
-config_file_location = os.path.join(SCRIPT_HOME_DIR, "config.yml")
+config_file_location = SCRIPT_HOME_DIR / "config.yml"
 config_schema = {
     "update_config": {
         "check_for_updates_at_launch": {
@@ -688,21 +745,26 @@ config_schema = {
         "default_ca_server": {
             "type": str,
             "default": "",
-            "validator": server_validator,
-            "comment": "The CA server which will be used by default (optionally with :port)",
-        },
-        "trust_unknow_certificates_by_default": {
-            "type": bool,
-            "default": False,
-            "validator": bool_validator,
-            "comment": "If true, any CA server providing an unknown self-signed certificate will be trusted by default",
+            "validator": partial(
+                hostname_or_ip_address_and_optional_port_validator, accept_blank=True
+            ),
+            "comment": "The step-ca server which will be used by default (optionally with :port)",
         },
         "fetch_root_ca_certificate_automatically": {
             "type": bool,
             "default": True,
             "validator": bool_validator,
-            "comment": "If false, the root certificate won't be fetched automatically from the CA server. You will need to enter the fingerprint manually when installing a root CA certificate",
+            "comment": "If false, the root certificate won't be fetched automatically from the step-ca server. You will need to enter the fingerprint manually when installing a root CA certificate",
         },
+    },
+    "certificate_request_config": {
+        "default_subject_name": {
+            "type": str,
+            "default": "change.me",
+            "validator": certificate_subject_name_validator,
+            "comment": "The default subject name for certificate requests",
+        }
+        # The remaining certificate request configurations are WIP and will be added in a future release
     },
     "logging_config": {
         "log_level_console": {

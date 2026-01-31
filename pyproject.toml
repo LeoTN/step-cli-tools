@@ -35,10 +35,12 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<4.0"
+# Can be unlocked once https://github.com/tmbo/questionary/issues/473 is resolved
 cryptography = "^46.0.3"
 packaging = "^25.0"
-questionary = "^2.1.1"
+python = ">=3.10,<4.0"
+questionary = "==2.1.1"
+requests = "^2.32.5"
 rich = "^14.2.0"
 ruamel-yaml = "^0.19.1"
 

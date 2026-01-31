@@ -1,445 +1,27 @@
-# --- Standard library imports ---
+# --- Standard library imports --- #
 import base64
 import json
-import os
-import platform
 import re
-import shutil
-import ssl
 import subprocess
-import tarfile
-import tempfile
-import time
 import warnings
 from pathlib import Path
-from urllib.request import urlopen
-import urllib.error
-from zipfile import ZipFile
+from typing import TypeVar
 
-# --- Third-party imports ---
+# --- Third-party imports --- #
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
+from cryptography.hazmat.primitives.asymmetric.types import PublicKeyTypes
+from cryptography.hazmat.primitives.serialization import load_pem_private_key, pkcs12
 from cryptography.utils import CryptographyDeprecationWarning
-from cryptography.x509.oid import NameOID
-from packaging import version
 
-# --- Local application imports ---
-from .common import *
-from .configuration import *
-from .data_classes import *
+# --- Local application imports --- #
+from ..common import DEFAULT_QY_STYLE, console, logger, qy
+from ..models.data import CertificateConversionResult, CRI_OutputFormat
 
-__all__ = [
-    "check_for_update",
-    "install_step_cli",
-    "execute_step_command",
-    "check_ca_health",
-    "get_ca_root_info",
-    "find_windows_cert_by_sha256",
-    "find_windows_certs_by_name",
-    "find_linux_cert_by_sha256",
-    "find_linux_certs_by_name",
-    "delete_windows_cert_by_thumbprint",
-    "delete_linux_cert_by_path",
-    "choose_cert_from_list",
-]
-
-
-def check_for_update(
-    pkg_name: str, current_pkg_version: str, include_prerelease: bool = False
-) -> str | None:
-    """
-    Check PyPI for newer releases of the package.
-
-    Args:
-        pkg_name: Name of the package.
-        current_pkg_version: Current version string of the package.
-        include_prerelease: Whether to consider pre-release versions.
-
-    Returns:
-        The latest version string if a newer version exists, otherwise None.
-    """
-
-    cache = Path.home() / f".{pkg_name}" / ".cache" / "update_check.json"
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    now = time.time()
-    current_parsed_version = version.parse(current_pkg_version)
-
-    logger.debug(locals())
-
-    # Try reading from cache
-    if cache.exists():
-        try:
-            with cache.open("r", encoding="utf-8") as file:
-                data = json.load(file)
-
-            latest_version = data.get("latest_version")
-            cache_lifetime = int(
-                config.get("update_config.check_for_updates_cache_lifetime_seconds")
-            )
-
-            if (
-                latest_version
-                and now - data.get("time", 0) < cache_lifetime
-                and version.parse(latest_version) > current_parsed_version
-            ):
-                logger.debug("Returning newer version from cache")
-                return latest_version
-
-        except (json.JSONDecodeError, OSError) as e:
-            logger.debug(f"Failed to read update cache: {e}")
-
-    # Fetch the latest releases from PyPI when the cache is empty, expired, or the cached version is older than the current version
-    try:
-        logger.debug("Fetching release metadata from PyPI")
-        with urlopen(f"https://pypi.org/pypi/{pkg_name}/json", timeout=5) as response:
-            data = json.load(response)
-
-        # Filter releases (exclude ones with yanked files)
-        releases = [
-            ver
-            for ver, files in data["releases"].items()
-            if files and all(not file.get("yanked", False) for file in files)
-        ]
-
-        # Exclude pre-releases if not requested
-        if not include_prerelease:
-            releases = [r for r in releases if not version.parse(r).is_prerelease]
-
-        if not releases:
-            logger.debug("No valid releases found")
-            return None
-
-        latest_version = max(releases, key=version.parse)
-        latest_parsed_version = version.parse(latest_version)
-
-        logger.debug(f"Latest available version on PyPI: {latest_version}")
-
-        # Write cache
-        try:
-            with cache.open("w", encoding="utf-8") as file:
-                json.dump({"time": now, "latest_version": latest_version}, file)
-        except OSError as e:
-            logger.debug(f"Failed to write update cache: {e}")
-
-        if latest_parsed_version > current_parsed_version:
-            logger.debug(f"Update available: {latest_version}")
-            return latest_version
-
-    except Exception as e:
-        logger.debug(f"Update check failed: {e}")
-        return None
-
-
-def install_step_cli(step_bin: str):
-    """
-    Download and install the step-cli binary for the current platform.
-
-    Args:
-        step_bin: Path to the step binary.
-    """
-
-    system = platform.system()
-    arch = platform.machine()
-    logger.info(f"Detected platform: {system} {arch}")
-    logger.info(f"Target installation path: {step_bin}")
-
-    if system == "Windows":
-        url = "https://github.com/smallstep/cli/releases/latest/download/step_windows_amd64.zip"
-        archive_type = "zip"
-    elif system == "Linux":
-        url = "https://github.com/smallstep/cli/releases/latest/download/step_linux_amd64.tar.gz"
-        archive_type = "tar.gz"
-    elif system == "Darwin":
-        url = "https://github.com/smallstep/cli/releases/latest/download/step_darwin_amd64.tar.gz"
-        archive_type = "tar.gz"
-    else:
-        logger.error(f"Unsupported platform: {system}")
-        return
-
-    tmp_dir = tempfile.mkdtemp()
-    tmp_path = os.path.join(tmp_dir, os.path.basename(url))
-    logger.info(f"Downloading step-cli from '{url}'...")
-
-    with urlopen(url) as response, open(tmp_path, "wb") as out_file:
-        out_file.write(response.read())
-
-    logger.debug(f"Archive downloaded to temporary path: {tmp_path}")
-
-    logger.info(f"Extracting '{archive_type}' archive...")
-    if archive_type == "zip":
-        with ZipFile(tmp_path, "r") as zip_ref:
-            zip_ref.extractall(tmp_dir)
-    else:
-        with tarfile.open(tmp_path, "r:gz") as tar_ref:
-            tar_ref.extractall(tmp_dir)
-
-    step_bin_name = os.path.basename(step_bin)
-
-    # Search recursively for the binary
-    matches = []
-    for root, _, files in os.walk(tmp_dir):
-        if step_bin_name in files:
-            found_path = os.path.join(root, step_bin_name)
-            matches.append(found_path)
-
-    if not matches:
-        logger.error(f"Could not find '{step_bin_name}' in the extracted archive.")
-        return
-
-    extracted_path = matches[0]  # Take the first found binary
-    logger.debug(f"Using extracted binary: {extracted_path}")
-
-    # Prepare installation path
-    binary_dir = os.path.dirname(step_bin)
-    os.makedirs(binary_dir, exist_ok=True)
-
-    # Delete old binary if exists
-    if os.path.exists(step_bin):
-        logger.debug("Removing existing step binary")
-        os.remove(step_bin)
-
-    shutil.move(extracted_path, step_bin)
-    os.chmod(step_bin, 0o755)
-
-    logger.info(f"step-cli installed: {step_bin}")
-
-    try:
-        result = subprocess.run([step_bin, "version"], capture_output=True, text=True)
-        logger.info(f"Installed step version:\n{result.stdout.strip()}")
-    except Exception as e:
-        logger.error(f"Failed to run step-cli: {e}")
-
-
-def execute_step_command(args, step_bin: str, interactive: bool = False) -> str | None:
-    """
-    Execute a step-cli command and return output or log errors.
-
-    Args:
-        args: List of command arguments to pass to step-cli.
-        step_bin: Path to the step binary.
-        interactive: If True, run the command interactively without capturing output.
-
-    Returns:
-        Command output as a string if successful, otherwise None.
-    """
-
-    logger.debug(locals())
-
-    if not step_bin or not os.path.exists(step_bin):
-        logger.error("step-cli not found. Please install it first.")
-        return None
-
-    try:
-        if interactive:
-            result = subprocess.run([step_bin] + args)
-            logger.debug(f"step-cli command exit code: {result.returncode}")
-
-            if result.returncode != 0:
-                logger.error(f"step-cli command exit code: {result.returncode}")
-                return None
-
-            return ""
-        else:
-            result = subprocess.run([step_bin] + args, capture_output=True, text=True)
-            logger.debug(f"step-cli command exit code: {result.returncode}")
-
-            if result.returncode != 0:
-                logger.error(f"step-cli command failed: {result.stderr.strip()}")
-                return None
-
-            return result.stdout.strip()
-
-    except Exception as e:
-        logger.error(f"Failed to execute step-cli command: {e}")
-        return None
-
-
-def execute_ca_request(
-    url: str,
-    trust_unknown_default: bool = False,
-    timeout: int = 10,
-) -> str | None:
-    """
-    Perform an HTTPS request to the CA, handling untrusted certificates if needed.
-
-    Args:
-        url: URL to request.
-        trust_unknown_default: If True, trust unverified SSL certificates.
-        timeout: Timeout in seconds.
-
-    Returns:
-        Response body as string, or None on failure or user abort.
-    """
-
-    logger.debug(locals())
-
-    def do_request(context):
-        with urlopen(url, context=context, timeout=timeout) as response:
-            logger.debug(f"Received HTTP response status code: {response.status}")
-            return response.read().decode("utf-8").strip()
-
-    context = (
-        ssl._create_unverified_context()
-        if trust_unknown_default
-        else ssl.create_default_context()
-    )
-
-    try:
-        return do_request(context)
-
-    except urllib.error.URLError as e:
-        reason = getattr(e, "reason", None)
-
-        logger.debug(f"URLError: {e}")
-
-        if isinstance(reason, ssl.SSLCertVerificationError):
-            logger.warning("Server provided an unknown or self-signed certificate.")
-
-            console.print()
-            answer = qy.confirm(
-                message=f"Do you want to trust '{url}' this time?",
-                default=False,
-                style=DEFAULT_QY_STYLE,
-            ).ask()
-
-            if not answer:
-                logger.info("Operation cancelled by user.")
-                return None
-
-            logger.debug("Retrying request with unverified SSL context")
-
-            try:
-                return do_request(ssl._create_unverified_context())
-            except Exception as retry_error:
-                logger.error(
-                    f"Retry failed: {retry_error}\n\nIs the port correct and the server available?"
-                )
-                return None
-
-        logger.error(
-            f"Connection failed: {e}\n\nIs the port correct and the server available?"
-        )
-        return None
-
-    except Exception as e:
-        logger.error(
-            f"Request failed: {e}\n\nIs the port correct and the server available?"
-        )
-        return None
-
-
-def check_ca_health(ca_base_url: str, trust_unknown_default: bool = False) -> bool:
-    """
-    Check the health endpoint of a CA server via HTTPS.
-
-    Args:
-        ca_base_url: Base URL of the CA server, including protocol and port.
-        trust_unknown_default: If True, trust unverified SSL certificates.
-
-    Returns:
-        True if the CA is healthy, False otherwise.
-    """
-
-    logger.debug(locals())
-
-    health_url = ca_base_url.rstrip("/") + "/health"
-
-    response = execute_ca_request(
-        health_url,
-        trust_unknown_default=trust_unknown_default,
-    )
-
-    if response is None:
-        logger.debug("CA health check failed due to missing response")
-        return False
-
-    logger.debug(f"Health endpoint response: {response}")
-
-    if "ok" in response.lower():
-        logger.info(f"CA at '{ca_base_url}' is healthy.")
-        return True
-
-    logger.error(f"CA health check failed for '{ca_base_url}'.")
-    return False
-
-
-def get_ca_root_info(
-    ca_base_url: str,
-    trust_unknown_default: bool = False,
-) -> CARootInfo | None:
-    """
-    Fetch the first root certificate from a Smallstep CA and return its name
-    and SHA256 fingerprint.
-
-    Args:
-        ca_base_url: Base URL of the CA (e.g. https://my-ca-host:9000).
-        trust_unknown_default: Skip SSL verification immediately if True.
-
-    Returns:
-        CARootInfo on success, None on error or user cancel.
-    """
-
-    logger.debug(locals())
-
-    roots_url = ca_base_url.rstrip("/") + "/roots.pem"
-
-    pem_bundle = execute_ca_request(
-        roots_url,
-        trust_unknown_default=trust_unknown_default,
-    )
-
-    if pem_bundle is None:
-        logger.debug("Failed to retrieve roots.pem")
-        return None
-
-    try:
-        # Extract first PEM certificate
-        match = re.search(
-            "-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
-            pem_bundle,
-            re.S,
-        )
-        if not match:
-            logger.error("No certificate found in roots.pem")
-            return None
-
-        logger.debug("Loading PEM certificate")
-        cert = x509.load_pem_x509_certificate(
-            match.group(0).encode(),
-            default_backend(),
-        )
-
-        # Compute SHA256 fingerprint
-        fingerprint_hex = cert.fingerprint(hashes.SHA256()).hex().upper()
-        fingerprint = ":".join(
-            fingerprint_hex[i : i + 2] for i in range(0, len(fingerprint_hex), 2)
-        )
-
-        # Extract CA name (CN preferred, always string)
-        logger.debug(f"Computed SHA256 fingerprint: {fingerprint}")
-
-        try:
-            cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-            ca_name = (
-                str(cn[0].value)
-                if cn and cn[0].value is not None
-                else str(cert.subject.rfc4514_string())
-            )
-        except Exception as e:
-            logger.warning(f"Unable to retrieve CA name: {e}")
-            ca_name = "Unknown CA"
-
-        logger.info("Root CA information retrieved successfully.")
-
-        return CARootInfo(
-            ca_name=ca_name,
-            fingerprint_sha256=fingerprint.replace(":", ""),
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to process CA root certificate: {e}")
-        return None
+# Used for the choose_cert_from_list() function
+TPathOrStr = TypeVar("TPathOrStr", Path, str)
 
 
 def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
@@ -489,7 +71,7 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
 
     if result.returncode != 0:
         logger.error(f"Failed to query certificates: {result.stderr.strip()}")
-        return None
+        return
 
     normalized_fp = sha256_fingerprint.lower().replace(":", "")
 
@@ -505,7 +87,7 @@ def find_windows_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | No
             continue
 
     logger.debug("No matching Windows certificate found")
-    return None
+    return
 
 
 def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
@@ -583,7 +165,7 @@ def find_windows_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     return matches
 
 
-def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None:
+def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[Path, str] | None:
     """
     Search the Linux system trust store for a certificate matching a given SHA256 fingerprint.
 
@@ -600,47 +182,47 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[str, str] | None
 
     logger.debug(f"Starting Linux certificate search by SHA256: {sha256_fingerprint}")
 
-    cert_dir = "/etc/ssl/certs"
+    cert_dir = Path("/etc/ssl/certs")
     fingerprint = sha256_fingerprint.lower().replace(":", "")
 
-    if not os.path.isdir(cert_dir):
+    if not cert_dir.is_dir():
         logger.error(f"Cert directory not found: {cert_dir}")
-        return None
+        return
 
     # Ignore deprecation warnings about non-positive serial numbers
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
-        for cert_file in os.listdir(cert_dir):
-            path = os.path.join(cert_dir, cert_file)
-            if os.path.isfile(path):
+        for cert_file in cert_dir.iterdir():
+            if cert_file.is_file():
                 try:
-                    logger.debug(f"Reading certificate file: {path}")
-                    with open(path, "rb") as f:
-                        cert_data = f.read()
-                        try:
-                            # Try PEM first
-                            cert = x509.load_pem_x509_certificate(
-                                cert_data, default_backend()
-                            )
-                        except ValueError:
-                            # Fallback to DER
-                            cert = x509.load_der_x509_certificate(
-                                cert_data, default_backend()
-                            )
-                        fp = cert.fingerprint(hashes.SHA256()).hex()
-                        if fp.lower() == fingerprint:
-                            logger.debug("Matching Linux certificate found")
-                            return (path, cert.subject.rfc4514_string())
+                    logger.debug(f"Reading certificate file: {cert_file}")
+                    cert_data = cert_file.read_bytes()
+                    try:
+                        # Try PEM first
+                        cert = x509.load_pem_x509_certificate(
+                            cert_data, default_backend()
+                        )
+                    except ValueError:
+                        # Fallback to DER
+                        cert = x509.load_der_x509_certificate(
+                            cert_data, default_backend()
+                        )
+                    fp = cert.fingerprint(hashes.SHA256()).hex()
+                    if fp.lower() == fingerprint:
+                        logger.debug("Matching Linux certificate found")
+                        return cert_file, cert.subject.rfc4514_string()
                 except Exception as e:
-                    logger.debug(f"Failed to process certificate file '{path}': {e}")
+                    logger.debug(
+                        f"Failed to process certificate file '{cert_file}': {e}"
+                    )
                     continue
 
     logger.debug("No matching Linux certificate found")
-    return None
+    return
 
 
-def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
+def find_linux_certs_by_name(name_pattern: str) -> list[tuple[Path, str]]:
     """
     Search Linux trust store for certificates by name.
     Supports simple wildcard '*' and matches separately against
@@ -651,13 +233,13 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
         name_pattern: Name or partial name to search (wildcard * allowed).
 
     Returns:
-        List of tuples (path, subject) for all matching certificates.
+        List of tuples (Path, subject) for all matching certificates.
     """
 
     logger.debug(f"Starting Linux certificate search by name pattern: {name_pattern}")
 
-    cert_dir = "/etc/ssl/certs"
-    if not os.path.isdir(cert_dir):
+    cert_dir = Path("/etc/ssl/certs")
+    if not cert_dir.is_dir():
         logger.error(f"Cert directory not found: {cert_dir}")
         return []
 
@@ -665,19 +247,18 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
     escaped_pattern = re.escape(name_pattern).replace(r"\*", ".*")
     pattern_re = re.compile(f"^{escaped_pattern}$", re.IGNORECASE)
 
-    matches = []
-    seen_real_paths: set[str] = set()
+    matches: list[tuple[Path, str]] = []
+    seen_real_paths: set[Path] = set()
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
-        for cert_file in os.listdir(cert_dir):
-            path = os.path.join(cert_dir, cert_file)
-            if not os.path.isfile(path):
+        for cert_file in cert_dir.iterdir():
+            if not cert_file.is_file():
                 continue
 
             try:
-                real_path = os.path.realpath(path)
+                real_path = cert_file.resolve()
 
                 # Skip duplicate certificates pointing to the same real file
                 if real_path in seen_real_paths:
@@ -685,35 +266,29 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[str, str]]:
                     continue
                 seen_real_paths.add(real_path)
 
-                logger.debug(f"Processing certificate file: {path}")
+                logger.debug(f"Processing certificate file: {cert_file}")
 
-                with open(path, "rb") as f:
-                    cert_data = f.read()
-                    try:
-                        # PEM support
-                        cert = x509.load_pem_x509_certificate(
-                            cert_data, default_backend()
-                        )
-                    except ValueError:
-                        # Fallback to DER
-                        cert = x509.load_der_x509_certificate(
-                            cert_data, default_backend()
-                        )
-                    subject_str = cert.subject.rfc4514_string()
-                    components = [comp.strip() for comp in subject_str.split(",")]
+                cert_data = cert_file.read_bytes()
+                try:
+                    # PEM support
+                    cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+                except ValueError:
+                    # Fallback to DER
+                    cert = x509.load_der_x509_certificate(cert_data, default_backend())
 
-                    for comp in components:
-                        match = re.match(
-                            r"^(?:CN|O|OU|C|DC)=(.*)$", comp, re.IGNORECASE
-                        )
-                        value = match.group(1).strip() if match else comp
-                        if pattern_re.match(value):
-                            logger.debug("Name pattern matched certificate")
-                            matches.append((path, subject_str))
-                            break
+                subject_str = cert.subject.rfc4514_string()
+                components = [comp.strip() for comp in subject_str.split(",")]
+
+                for comp in components:
+                    match = re.match(r"^(?:CN|O|OU|C|DC)=(.*)$", comp, re.IGNORECASE)
+                    value = match.group(1).strip() if match else comp
+                    if pattern_re.match(value):
+                        logger.debug("Name pattern matched certificate")
+                        matches.append((cert_file, subject_str))
+                        break
 
             except Exception as e:
-                logger.debug(f"Failed to process certificate file '{path}': {e}")
+                logger.debug(f"Failed to process certificate file '{cert_file}': {e}")
                 continue
 
     logger.debug(f"Total matching Linux certificates found: {len(matches)}")
@@ -734,7 +309,7 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
 
     console.print()
     answer = qy.confirm(
-        message=f"Do you really want to remove the certificate: '{cn}'?",
+        message=f"Do you really want to remove the certificate '{cn}'?",
         default=False,
         style=DEFAULT_QY_STYLE,
     ).ask()
@@ -824,7 +399,7 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
         ).ask()
         if not retry_with_admin_privileges:
             logger.info("Operation cancelled by user.")
-            return None
+            return
 
         delete_windows_cert_by_thumbprint(thumbprint, cn, elevated=True)
         return
@@ -836,7 +411,7 @@ def delete_windows_cert_by_thumbprint(thumbprint: str, cn: str, elevated: bool =
     logger.error(f"Failed to remove certificate with thumbprint '{thumbprint}'")
 
 
-def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
+def delete_linux_cert_by_path(cert_path: Path, cn: str, elevated: bool = False):
     """
     Delete a certificate from the Linux system trust store.
 
@@ -846,7 +421,6 @@ def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
         elevated: Whether to execute commands with elevated privileges.
     """
 
-    cert_path_obj = Path(cert_path)
     local_dir = Path("/usr/local/share/ca-certificates").resolve()
     package_dir = Path("/usr/share/ca-certificates").resolve()
     ca_conf_path = Path("/etc/ca-certificates.conf")
@@ -876,7 +450,7 @@ def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
 
     console.print()
     answer = qy.confirm(
-        message=f"Do you really want to remove the certificate: '{cn}'?",
+        message=f"Do you really want to remove the certificate '{cn}'?",
         default=False,
         style=DEFAULT_QY_STYLE,
     ).ask()
@@ -884,11 +458,11 @@ def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
         logger.info("Operation cancelled by user.")
         return
 
-    if not cert_path_obj.is_symlink():
+    if not cert_path.is_symlink():
         logger.warning(f"'{cert_path}' is not a symlink, skipping.")
         return
 
-    target_path = cert_path_obj.resolve()
+    target_path = cert_path.resolve()
     logger.debug(f"Resolved symlink target: {target_path}")
 
     try:
@@ -979,14 +553,14 @@ def delete_linux_cert_by_path(cert_path: str, cn: str, elevated: bool = False):
 
 
 def choose_cert_from_list(
-    certs: list[tuple[str, str]], message: str = "Select a certificate:"
-) -> tuple[str, str] | None:
+    certs: list[tuple[TPathOrStr, str]], message: str = "Select a certificate:"
+) -> tuple[TPathOrStr, str] | None:
     """
-    Presents an alphabetically sorted list of certificates to the user and returns the chosen tuple (fingerprint/path, subject).
+    Presents an alphabetically sorted list of certificates to the user and returns the chosen tuple (Path/thumbprint, subject).
 
     Args:
-        certs: List of tuples (id, subject) to choose from.
-        message: message text for the questionary select.
+        certs: List of tuples (Path/thumbprint, subject) to choose from.
+        message: A message text for the questionary select.
 
     Returns:
         The selected tuple or None if user cancels.
@@ -996,7 +570,7 @@ def choose_cert_from_list(
 
     if not certs:
         logger.debug("No certificates available for selection")
-        return None
+        return
 
     # Sort certificates alphabetically by subject (case-insensitive)
     sorted_certs = sorted(certs, key=lambda cert: cert[1].lower())
@@ -1015,7 +589,7 @@ def choose_cert_from_list(
 
     if selected_subject is None:
         logger.debug("User cancelled certificate selection")
-        return None
+        return
 
     # Return the full tuple matching the selected subject
     for cert in sorted_certs:
@@ -1026,4 +600,160 @@ def choose_cert_from_list(
             return cert
 
     logger.debug("Selected certificate not found in internal list")
-    return None
+    return
+
+
+def convert_certificate(
+    crt_path: Path,
+    key_path: Path,
+    output_dir: Path,
+    output_format: CRI_OutputFormat,
+    key_output_encryption_password: str | None = None,
+    pfx_output_encryption_password: str | None = None,
+) -> CertificateConversionResult:
+    """
+    Convert or bundle a CRT and KEY file into the desired output format.
+
+    Args:
+        crt_path: Path to the PEM-encoded certificate (.crt).
+        key_path: Path to the PEM-encoded private key (.key).
+        output_dir: Directory where output file(s) will be written.
+        output_format: Desired output format (PEM_CRT_KEY, PEM_BUNDLE, PFX_BUNDLE).
+        key_output_encryption_password: Optional password for KEY output.
+        pfx_output_encryption_password: Optional password for PFX output.
+
+    Returns:
+        CertificateConversionResult with relevant paths set.
+    """
+
+    # Mask sensitive values for logging
+    debug_locals = {
+        key: (
+            "***"
+            if key
+            in {"key_output_encryption_password", "pfx_output_encryption_password"}
+            and value is not None
+            else value
+        )
+        for key, value in locals().items()
+    }
+    logger.debug(debug_locals)
+
+    def _public_key_bytes(public_key: "PublicKeyTypes") -> bytes:
+        # Serialize public key to a canonical DER representation for comparison
+        return public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result = CertificateConversionResult(format=output_format)
+
+    # --- PEM_CRT_KEY ---
+    if output_format == CRI_OutputFormat.PEM_CRT_KEY:
+        crt_out = output_dir / crt_path.name
+        key_out = output_dir / key_path.name
+
+        # Copy certificate
+        if crt_path != crt_out:
+            crt_out.write_bytes(crt_path.read_bytes())
+        else:
+            logger.debug(
+                f"Certificate output path '{crt_out}' is the same as input, skipping copy."
+            )
+
+        # Write (optionally encrypted) private key
+        if key_output_encryption_password:
+            private_key_obj = load_pem_private_key(key_path.read_bytes(), password=None)
+            key_bytes = private_key_obj.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.BestAvailableEncryption(
+                    key_output_encryption_password.encode()
+                ),
+            )
+            key_out.write_bytes(key_bytes)
+        else:
+            if key_path != key_out:
+                key_out.write_bytes(key_path.read_bytes())
+            else:
+                logger.debug(
+                    f"Private key output path '{key_out}' is the same as input, skipping copy."
+                )
+
+        result.certificate = crt_out
+        result.private_key = key_out
+        return result
+
+    crt_data = crt_path.read_bytes()
+    key_data = key_path.read_bytes()
+
+    # --- PEM_BUNDLE ---
+    if output_format == CRI_OutputFormat.PEM_BUNDLE:
+        bundle_path = output_dir / f"{crt_path.stem}_bundle.pem"
+
+        # Encrypt key first if password provided
+        if key_output_encryption_password:
+            private_key_obj = load_pem_private_key(key_data, password=None)
+            key_bytes = private_key_obj.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.BestAvailableEncryption(
+                    key_output_encryption_password.encode()
+                ),
+            )
+        else:
+            key_bytes = key_data
+
+        # Key first, certificate second
+        combined = key_bytes.rstrip() + b"\n\n" + crt_data.lstrip()
+        bundle_path.write_bytes(combined)
+
+        result.pem_bundle = bundle_path
+        return result
+
+    # --- PFX_BUNDLE ---
+    if output_format == CRI_OutputFormat.PFX_BUNDLE:
+        cert = x509.load_pem_x509_certificate(crt_data)
+        private_key = load_pem_private_key(key_data, password=None)
+
+        if not isinstance(
+            private_key,
+            (
+                rsa.RSAPrivateKey,
+                dsa.DSAPrivateKey,
+                ec.EllipticCurvePrivateKey,
+                ed25519.Ed25519PrivateKey,
+                ed448.Ed448PrivateKey,
+            ),
+        ):
+            raise TypeError(
+                f"Unsupported private key type for PKCS#12 serialization: {type(private_key).__name__}"
+            )
+
+        if _public_key_bytes(cert.public_key()) != _public_key_bytes(
+            private_key.public_key()
+        ):
+            raise ValueError(
+                f"The provided private key '{key_path}' does not match the certificate '{crt_path}'"
+            )
+
+        pfx_path = output_dir / f"{crt_path.stem}.pfx"
+        pfx_bytes = pkcs12.serialize_key_and_certificates(
+            name=crt_path.stem.encode(),
+            key=private_key,
+            cert=cert,
+            cas=None,
+            encryption_algorithm=(
+                serialization.BestAvailableEncryption(
+                    pfx_output_encryption_password.encode()
+                )
+                if pfx_output_encryption_password
+                else serialization.NoEncryption()
+            ),
+        )
+        pfx_path.write_bytes(pfx_bytes)
+        result.pfx = pfx_path
+        return result
+
+    raise ValueError(f"Unsupported output format: {output_format}")

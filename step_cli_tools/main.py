@@ -1,24 +1,15 @@
 # --- Standard library imports ---
-import os
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
 # --- Third-party imports ---
 from rich.logging import RichHandler
 
-# Allows the script to be run directly and still find the package modules
-if __name__ == "__main__" and __package__ is None:
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    sys.path.insert(0, parent_dir)
-    __package__ = "step_cli_tools"
-
 # --- Local application imports ---
-from .common import *
-from .configuration import *
-from .operations import *
-from .support_functions import *
-
-# --- Main function ---
+from .common import ALL_DIRS, DEFAULT_QY_STYLE, STEP_BIN, console, logger, qy
+from .configuration import check_and_repair_config_file, config, show_config_operations
+from .operations import operation1, operation2, operation3
+from .utils.general import check_for_update, install_step_cli
 
 
 def main():
@@ -38,6 +29,11 @@ def main():
     textArray = ["", "#" * len(bannerText), bannerText, "#" * len(bannerText), ""]
     for text in textArray:
         logger.info(text)
+    # Ensure necessary directories exist
+    for directory in ALL_DIRS:
+        if not directory.exists():
+            logger.debug(f"Creating directory: {directory}")
+            directory.mkdir(parents=True)
     # Unmute console logging
     for handler in logger.handlers:
         if isinstance(handler, RichHandler):
@@ -97,10 +93,10 @@ def main():
     console.print(version_text)
 
     # Ensure step-cli is installed
-    if not os.path.exists(STEP_BIN):
+    if not STEP_BIN.exists():
         console.print()
         answer = qy.confirm(
-            message="step-cli not found. Do you want to install it now?",
+            message="step-cli binary not found. Do you want to download it now?",
             style=DEFAULT_QY_STYLE,
         ).ask()
         if answer:
@@ -111,18 +107,23 @@ def main():
     # Define operations and their corresponding functions
     operations = [
         qy.Choice(
-            title="Install root CA on the system",
-            description="Add a root certificate of your step-ca server into the system trust store.",
+            title="Install Root CA",
+            description="Add a root certificate of your step-ca server to the system trust store.",
             value=operation1,
         ),
         qy.Choice(
-            title="Uninstall root CA from the system (Windows & Linux)",
+            title="Uninstall Root CA (Windows & Linux)",
             description="Delete a root certificate (of your step-ca server) from the system trust store.",
             value=operation2,
         ),
         qy.Choice(
+            title="Request Certificate",
+            description="Request a new certificate from your step-ca server.",
+            value=operation3,
+        ),
+        qy.Choice(
             title="Configuration",
-            description="View and edit the configuration file.",
+            description="View and edit the config file.",
             value=show_config_operations,
         ),
         qy.Choice(
@@ -135,7 +136,7 @@ def main():
         console.print()
         # Prompt the user to select an operation
         selected_operation = qy.select(
-            message="Operation:",
+            message="Operation",
             choices=operations,
             use_search_filter=True,
             use_jk_keys=False,
