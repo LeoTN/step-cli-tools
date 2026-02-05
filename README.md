@@ -6,12 +6,11 @@
 [![latest-beta-version](https://img.shields.io/github/v/release/LeoTN/step-cli-tools?&include_prereleases&filter=*.*.*b*&display_name=release&style=for-the-badge&logo=Textpattern&logoColor=orange&label=LATEST%20BETA&color=orange)](https://github.com/LeoTN/step-cli-tools/releases)
 [![license](https://img.shields.io/github/license/LeoTN/step-cli-tools?&style=for-the-badge&logo=Google%20Docs&logoColor=blue&label=License&color=blue)](https://github.com/LeoTN/step-cli-tools/blob/main/LICENSE)
 
-step-cli-tools is designed to **simplify** using the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli** whilst adding a few extra features.
-
 </div>
 
-##
+step-cli-tools is designed to **simplify** using the [step-ca](https://github.com/smallstep/certificates) command-line interface **step-cli** whilst adding a few extra features.
 
+##
 
 * [About](#about)
 * [Getting Started](#getting-started)
