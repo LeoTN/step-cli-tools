@@ -1,11 +1,11 @@
-# --- Standard library imports --- #
+# --- Standard library imports ---
 import re
 import ssl
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
-# --- Third-party imports --- #
+# --- Third-party imports ---
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes

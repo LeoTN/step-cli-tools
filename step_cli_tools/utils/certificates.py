@@ -1,4 +1,4 @@
-# --- Standard library imports --- #
+# --- Standard library imports ---
 import base64
 import json
 import re
@@ -7,7 +7,7 @@ import warnings
 from pathlib import Path
 from typing import TypeVar
 
-# --- Third-party imports --- #
+# --- Third-party imports ---
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.types import PublicKeyTypes
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, pkcs12
 from cryptography.utils import CryptographyDeprecationWarning
 
-# --- Local application imports --- #
+# --- Local application imports ---
 from ..common import DEFAULT_QY_STYLE, console, logger, qy
 from ..models.data import CertificateConversionResult, CRI_OutputFormat
 
