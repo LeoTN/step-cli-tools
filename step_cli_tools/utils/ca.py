@@ -7,7 +7,6 @@ from urllib.request import urlopen
 
 # --- Third-party imports ---
 from cryptography import x509
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import NameOID
 
@@ -225,10 +224,7 @@ def get_ca_root_info(
             return
 
         logger.debug("Loading PEM certificate")
-        cert = x509.load_pem_x509_certificate(
-            match.group(0).encode(),
-            default_backend(),
-        )
+        cert = x509.load_pem_x509_certificate(match.group(0).encode())
 
         # Compute SHA256 fingerprint
         fingerprint_hex = cert.fingerprint(hashes.SHA256()).hex().upper()

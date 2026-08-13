@@ -68,7 +68,7 @@ class Configuration:
         try:
             with self.file_location.open("w", encoding="utf-8") as f:
                 yaml.dump(self._data, f)
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error(f"Could not save settings to '{self.file_location}': {e}")
 
     def generate_default(self, overwrite: bool = False):
