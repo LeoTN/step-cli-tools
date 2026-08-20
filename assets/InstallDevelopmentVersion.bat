@@ -3,6 +3,6 @@ color 0f
 cls
 echo Terminal ready...
 
-pip install -e ..\.
+pip install -e "%~dp0..\."
 
 pause

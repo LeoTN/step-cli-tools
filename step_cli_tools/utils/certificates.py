@@ -9,7 +9,6 @@ from typing import TypeVar
 
 # --- Third-party imports ---
 from cryptography import x509
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
 from cryptography.hazmat.primitives.asymmetric.types import PublicKeyTypes
@@ -200,14 +199,10 @@ def find_linux_cert_by_sha256(sha256_fingerprint: str) -> tuple[Path, str] | Non
                     cert_data = cert_file.read_bytes()
                     try:
                         # Try PEM first
-                        cert = x509.load_pem_x509_certificate(
-                            cert_data, default_backend()
-                        )
+                        cert = x509.load_pem_x509_certificate(cert_data)
                     except ValueError:
                         # Fallback to DER
-                        cert = x509.load_der_x509_certificate(
-                            cert_data, default_backend()
-                        )
+                        cert = x509.load_der_x509_certificate(cert_data)
                     fp = cert.fingerprint(hashes.SHA256()).hex()
                     if fp.lower() == fingerprint:
                         logger.debug("Matching Linux certificate found")
@@ -271,10 +266,10 @@ def find_linux_certs_by_name(name_pattern: str) -> list[tuple[Path, str]]:
                 cert_data = cert_file.read_bytes()
                 try:
                     # PEM support
-                    cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+                    cert = x509.load_pem_x509_certificate(cert_data)
                 except ValueError:
                     # Fallback to DER
-                    cert = x509.load_der_x509_certificate(cert_data, default_backend())
+                    cert = x509.load_der_x509_certificate(cert_data)
 
                 subject_str = cert.subject.rfc4514_string()
                 components = [comp.strip() for comp in subject_str.split(",")]
